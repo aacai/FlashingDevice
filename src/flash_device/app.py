@@ -10,9 +10,14 @@
 from __future__ import annotations
 
 import glob
+import json
 import logging
 import os
+import re
 import sys
+import threading
+import time
+from datetime import datetime
 
 from PyQt6.QtCore import QSettings, Qt, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QFont
@@ -25,17 +30,20 @@ from PyQt6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from flash_device.backend.edl_runner import CmdWorker
-from flash_device.backend.progress import count_program_entries
+from flash_device.backend.qfil import build_qfil_argv, qfil_summary
+from flash_device.backend.qt_bridge import JobWorker
 from flash_device.safety import guards
 from flash_device.safety.backup import default_backup_root, new_backup_dir
 from flash_device.utils import platform as pf
@@ -49,28 +57,34 @@ APP_NAME = "FlashingDevice"
 ORG = "FlashingDevice"
 
 STYLE = """
-QWidget { background:#1c1c20; color:#e8e8ee; font-size:13px; }
-QMainWindow { background:#1c1c20; }
-QGroupBox { border:1px solid #35353f; border-radius:8px; margin-top:16px;
-            padding:14px 10px 10px 10px; font-weight:600; color:#a8a8bb; }
-QGroupBox::title { subcontrol-origin:margin; left:12px; padding:0 6px; }
-QLineEdit { background:#26262d; border:1px solid #35353f; border-radius:6px;
-            padding:7px 9px; color:#e8e8ee; selection-background-color:#3a6ea5; }
-QPushButton { background:#32323c; border:1px solid #44444f; border-radius:6px;
-              padding:8px 14px; color:#e8e8ee; }
-QPushButton:hover { background:#3d3d4a; border-color:#55555f; }
-QPushButton:pressed { background:#2a2a33; }
-QPushButton:disabled { background:#232329; color:#5c5c68; border-color:#2e2e36; }
-QPushButton#danger { background:#7d2531; border-color:#9c303f; font-weight:600; }
-QPushButton#danger:hover { background:#932c3a; }
-QPushButton#primary { background:#25567d; border-color:#2f6a99; font-weight:600; }
-QPushButton#primary:hover { background:#2c6494; }
-QTextEdit { background:#131316; border:1px solid #30303a; border-radius:6px;
-            color:#c8e6c8; font-family:Menlo,monospace; font-size:12px; }
-QComboBox { background:#26262d; border:1px solid #35353f; border-radius:6px; padding:6px 8px; }
-QProgressBar { background:#26262d; border:1px solid #35353f; border-radius:4px;
-               height:14px; text-align:center; }
-QProgressBar::chunk { background:#3a8fd0; border-radius:4px; }
+QWidget { background:#0d1117; color:#e6edf3; font-size:13px; }
+QMainWindow { background:#0d1117; }
+QGroupBox { border:1px solid #30363d; border-radius:12px; margin-top:18px;
+            padding:16px 12px 12px 12px; font-weight:700; color:#9fb4d8;
+            background:#161b22; }
+QGroupBox::title { subcontrol-origin:margin; left:12px; padding:0 8px; }
+QLineEdit { background:#0d1117; border:1px solid #30363d; border-radius:8px;
+            padding:8px 10px; color:#e6edf3; selection-background-color:#1f6feb; }
+QLineEdit:focus { border-color:#2f81f7; }
+QPushButton { background:#21262d; border:1px solid #3d444d; border-radius:8px;
+              padding:9px 15px; color:#e6edf3; font-weight:600; }
+QPushButton:hover { background:#30363d; border-color:#58a6ff; }
+QPushButton:pressed { background:#1c2128; }
+QPushButton:disabled { background:#161b22; color:#6e7681; border-color:#21262d; }
+QPushButton#danger { background:#a40e26; border-color:#da3633; font-weight:700; }
+QPushButton#danger:hover { background:#c21f36; }
+QPushButton#primary { background:#1f6feb; border-color:#388bfd; font-weight:700; }
+QPushButton#primary:hover { background:#388bfd; }
+QTextEdit { background:#010409; border:1px solid #30363d; border-radius:10px;
+            color:#c9d1d9; font-family:Menlo,Consolas,monospace; font-size:12px; }
+QComboBox { background:#0d1117; border:1px solid #30363d; border-radius:8px; padding:7px 9px; }
+QListWidget { background:#010409; border:1px solid #30363d; border-radius:8px; }
+QProgressBar { background:#0d1117; border:1px solid #30363d; border-radius:11px;
+               height:22px; text-align:center; color:#e6edf3; font-weight:700; }
+QProgressBar::chunk { background:qlineargradient(x1:0,y1:0,x2:1,y2:0,
+               stop:0 #1f6feb, stop:1 #39c5cf); border-radius:11px; }
+QScrollBar:vertical { background:#0d1117; width:12px; }
+QScrollBar::handle:vertical { background:#30363d; border-radius:6px; min-height:30px; }
 """
 
 
@@ -80,26 +94,47 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("FlashingDevice — Qualcomm 9008 / EDL")
-        self.resize(1020, 780)
+        try:
+            scr = QApplication.primaryScreen()
+            avail = scr.availableGeometry().height() if scr else 800
+        except Exception:
+            avail = 800
+        self.resize(1000, min(820, int(avail) - 30))
+        self.setMinimumHeight(520)
         self.setStyleSheet(STYLE)
         self.settings = QSettings(ORG, APP_NAME)
-        self.worker: CmdWorker | None = None
+        self.worker: JobWorker | None = None
         self.seen_9008 = False
         self.has_edl = False
         self.raws: list[str] = []
         self.pats: list[str] = []
         self._build_ui()
         self._restore()
+        self._active = None
+        self._rp_seen: list[str] = []
+        self._rp_cur: str | None = None
+        self._render_history()
+        self._last_prog_ts: float | None = None
+        self._server = None
+        self._server_thread = None
+        self._server_port = 8899
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._poll)
         self.timer.start(1000)
+        self.beat = QTimer(self)
+        self.beat.timeout.connect(self._heartbeat)
+        self.beat.start(1000)
         self._poll()
 
     # ---------------- UI ----------------
     def _build_ui(self) -> None:
-        root = QWidget()
-        self.setCentralWidget(root)
-        v = QVBoxLayout(root)
+        # 整个界面包进滚动区：窗口高度受限不超屏，内容再长也能滚动查看。
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        container = QWidget()
+        v = QVBoxLayout(container)
         v.setContentsMargins(14, 12, 14, 12)
         v.setSpacing(10)
 
@@ -148,6 +183,10 @@ class MainWindow(QMainWindow):
         g3.addLayout(r)
         self.fwinfos = QLabel("—")
         self.fwinfos.setStyleSheet("color:#8b8b9a; font-size:12px;")
+        self.fwinfos.setWordWrap(True)
+        self.fwinfos.setTextInteractionFlags(
+            self.fwinfos.textInteractionFlags() | Qt.TextInteractionFlag.TextSelectableByMouse
+        )
         g3.addWidget(self.fwinfos)
         v.addWidget(gb3)
 
@@ -185,8 +224,44 @@ class MainWindow(QMainWindow):
         self.b_stop.clicked.connect(self._stop)
         v.addWidget(gb4)
 
+        gb_h = QGroupBox("刷机历史（点“恢复选中项”可一键回填当时选择，免得重选）")
+        gh = QVBoxLayout(gb_h)
+        hr = QHBoxLayout()
+        self.hist = QListWidget()
+        self.hist.setStyleSheet(
+            "background:#131316; border:1px solid #30303a; border-radius:6px;"
+            "color:#c8c8d0; font-size:12px;"
+        )
+        self.hist.setMaximumHeight(120)
+        hr.addWidget(self.hist, 1)
+        hbtn = QVBoxLayout()
+        self.b_hist_apply = QPushButton("恢复选中项")
+        self.b_hist_clear = QPushButton("清空历史")
+        hbtn.addWidget(self.b_hist_apply)
+        hbtn.addWidget(self.b_hist_clear)
+        hbtn.addStretch(1)
+        hr.addLayout(hbtn)
+        gh.addLayout(hr)
+        self.b_hist_apply.clicked.connect(self._apply_history)
+        self.b_hist_clear.clicked.connect(self._clear_history)
+        v.addWidget(gb_h)
+
         gb5 = QGroupBox("日志与进度（每次运行都写入文件，方便事后复盘）")
         g5 = QVBoxLayout(gb5)
+        # rawprogram 进度小方块：随刷机推进点亮（灰=未动 / 蓝=进行中 / 绿=完成 / 红=出错）
+        chrow = QHBoxLayout()
+        self.chips = []
+        for i in range(7):
+            c = QLabel(f"rawprogram{i}")
+            c.setFixedHeight(26)
+            c.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            c.setStyleSheet(
+                "QLabel{background:#21262d;border:1px solid #30363d;border-radius:6px;"
+                "padding:2px 8px;color:#8b949e;font-size:12px;}"
+            )
+            self.chips.append(c)
+            chrow.addWidget(c)
+        g5.addLayout(chrow)
         logrow = QHBoxLayout()
         self.logpath_label = QLabel("日志: 初始化中…")
         self.logpath_label.setStyleSheet("color:#8b8b9a; font-size:12px;")
@@ -197,12 +272,19 @@ class MainWindow(QMainWindow):
         b_open_log.clicked.connect(self._open_log_dir)
         b_env = QPushButton("环境自检")
         b_env.clicked.connect(self._show_env_dialog)
+        self.b_server = QPushButton("启动网页控制台")
+        self.b_server.clicked.connect(self._toggle_server)
+        self.heartbeat = QLabel("空闲")
+        self.heartbeat.setStyleSheet("color:#8b949e; font-size:12px;")
         logrow.addWidget(self.logpath_label, 1)
+        logrow.addWidget(self.heartbeat)
         logrow.addWidget(b_env)
+        logrow.addWidget(self.b_server)
         logrow.addWidget(b_open_log)
         g5.addLayout(logrow)
         self.log = QTextEdit()
         self.log.setReadOnly(True)
+        self.log.setMinimumHeight(220)
         g5.addWidget(self.log)
         self.op_label = QLabel("")
         self.op_label.setStyleSheet("color:#8b8b9a; font-size:12px;")
@@ -217,7 +299,10 @@ class MainWindow(QMainWindow):
         self.bar_file.setValue(0)
         self.bar_file.setFormat("当前文件 %p%")
         g5.addWidget(self.bar_file)
-        v.addWidget(gb5, 1)
+        v.addWidget(gb5)
+
+        scroll.setWidget(container)
+        self.setCentralWidget(scroll)
 
     def _restore(self) -> None:
         self.loader.setText(self.settings.value("loader", ""))
@@ -233,6 +318,72 @@ class MainWindow(QMainWindow):
         self.settings.setValue("loader", self.loader.text())
         self.settings.setValue("fwdir", self.fwdir.text())
         self.settings.setValue("mem", self.mem.currentText())
+
+    # ---------------- flash history ----------------
+    def _history_path(self) -> str:
+        from flash_device.utils.logging_setup import get_log_path
+
+        p = get_log_path() or os.path.expanduser("~/flash_device.log")
+        return os.path.join(os.path.dirname(p), "flash_history.json")
+
+    def _load_history(self) -> list[dict]:
+        try:
+            with open(self._history_path(), encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    def _add_history(self, entry: dict) -> None:
+        hist = self._load_history()
+        hist.insert(0, entry)
+        hist = hist[:50]
+        try:
+            os.makedirs(os.path.dirname(self._history_path()), exist_ok=True)
+            with open(self._history_path(), "w", encoding="utf-8") as f:
+                json.dump(hist, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+        self._render_history()
+
+    def _render_history(self) -> None:
+        self.hist.clear()
+        for e in self._load_history():
+            op = e.get("op", "?")
+            fw = os.path.basename(e.get("fwdir", "") or e.get("target", "") or "?")
+            res = e.get("result", "")
+            ts = e.get("ts", "")
+            label = f"{ts}  ·  {op}  ·  {fw}  ·  {res}"
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, e)
+            self.hist.addItem(item)
+
+    def _apply_history(self) -> None:
+        it = self.hist.currentItem()
+        if not it:
+            return
+        e = it.data(Qt.ItemDataRole.UserRole)
+        if not e:
+            return
+        fw = e.get("fwdir", "")
+        if fw:
+            self.fwdir.setText(fw)
+            self._scan_fw()
+        if e.get("loader"):
+            self.loader.setText(e["loader"])
+        mem = e.get("mem")
+        if mem:
+            idx = self.mem.findText(mem)
+            if idx >= 0:
+                self.mem.setCurrentIndex(idx)
+        self._save()
+
+    def _clear_history(self) -> None:
+        try:
+            os.remove(self._history_path())
+        except OSError:
+            pass
+        self._render_history()
 
     # ---------------- pickers ----------------
     def _pick_loader(self) -> None:
@@ -264,8 +415,23 @@ class MainWindow(QMainWindow):
             ) + glob.glob(os.path.join(d, "**", "prog_firehose*.mbn"), recursive=True)
             if cands:
                 self.loader.setText(cands[0])
-                extra = f"    已自动选中编程器: {os.path.basename(cands[0])}"
-        self.fwinfos.setText(msg + extra)
+                extra = f"\n（已自动选中编程器: {os.path.basename(cands[0])}）"
+        # 把「选到的东西」详细列在界面上
+        info = [
+            f"目录: {d}",
+            f"编程器: {self.loader.text().strip() or '（未选，需先选 Firehose）'}",
+        ]
+        if raws:
+            info.append(f"分区表 rawprogram（{len(raws)} 个，整包刷入将全部覆盖）:")
+            for x in raws:
+                info.append(f"  • {os.path.basename(x)}")
+        else:
+            info.append(msg)
+        if pats:
+            info.append(f"补丁 patch（{len(pats)} 个）:")
+            for x in pats:
+                info.append(f"  • {os.path.basename(x)}")
+        self.fwinfos.setText("\n".join(info) + extra)
 
     # ---------------- device poll ----------------
     def _set(self, color: str, text: str) -> None:
@@ -336,24 +502,86 @@ class MainWindow(QMainWindow):
             return False
         return True
 
-    def _run(self, args: list[str], cwd: str | None = None, total_files: int = 0) -> None:
+    def _run(
+        self,
+        args: list[str],
+        cwd: str | None = None,
+        total_files: int = 0,
+        status_text: str = "",
+    ) -> None:
         logger.info("run: %s (cwd=%s)", " ".join(args), cwd)
         self._log("$ " + " ".join(args))
         self.bar_total.setValue(0)
         self.bar_file.setValue(0)
-        self.op_label.setText("")
-        self.worker = CmdWorker(args, cwd, total_files=total_files)
+        self._rp_seen = []
+        self._rp_cur = None
+        self._update_rp_chips()
+        self.op_label.setText(status_text or "")
+        self.worker = JobWorker(status_text or "刷机任务", args, total_files=total_files, cwd=cwd)
         self.worker.line.connect(self._log)
         self.worker.progress.connect(self._on_progress)
         self.worker.done.connect(self._finished)
         self._update_buttons()
         self.worker.start()
 
-    def _on_progress(self, overall: float, op: str, cur: str) -> None:
-        self.bar_total.setValue(int(max(0, min(100, overall))))
-        # per-file pct is embedded in worker state; overall bar is primary,
-        # file bar mirrors fractional part for qfil sessions
-        self.op_label.setText(f"{op}  {cur}".strip())
+    def _on_progress(self, overall: float, op: str, cur: str, file_pct: float = 0.0) -> None:
+        overall = max(0.0, min(100.0, overall))
+        file_pct = max(0.0, min(100.0, file_pct))
+        self._last_prog_ts = time.monotonic()
+        self.bar_total.setValue(int(overall))
+        self.bar_file.setValue(int(file_pct))
+        what = cur if cur else (op or "处理中")
+        self.op_label.setText(
+            f"正在刷：{what}    总进度 {overall:.1f}%    当前文件 {file_pct:.0f}%"
+        )
+
+    def _heartbeat(self) -> None:
+        """1s 心跳：即使信号通路异常，也直接从 job 快照刷新进度条；卡住肉眼可见。"""
+        w = self.worker
+        if w is not None and w.isRunning() and w.job is not None:
+            try:
+                snap = w.job.snapshot(log_tail=0)
+                self.bar_total.setValue(int(snap["overall"]))
+                self.bar_file.setValue(int(snap["file_pct"]))
+                w.state.pct_in_file = snap["file_pct"]
+            except Exception:
+                pass
+            if self._last_prog_ts is None:
+                self.heartbeat.setText("● 等待第一包进度…")
+            else:
+                age = int(time.monotonic() - self._last_prog_ts)
+                self.heartbeat.setText(f"● 进度{age}s前更新" if age > 1 else "● 进度实时同步中")
+            self.heartbeat.setStyleSheet("color:#3fb950; font-size:12px;")
+        else:
+            self.heartbeat.setText("空闲")
+            self.heartbeat.setStyleSheet("color:#8b949e; font-size:12px;")
+
+    def _toggle_server(self) -> None:
+        if self._server is not None:
+            try:
+                self._server.shutdown()
+            except Exception:
+                pass
+            self._server = None
+            self.b_server.setText("启动网页控制台")
+            self._log(">>> 网页控制台已停止")
+            return
+        try:
+            from http.server import ThreadingHTTPServer
+
+            from flash_device.server import Handler
+
+            self._server = ThreadingHTTPServer(("127.0.0.1", self._server_port), Handler)
+            self._server_thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+            self._server_thread.start()
+        except OSError as e:
+            QMessageBox.warning(self, "启动失败", f"端口 {self._server_port} 被占用：{e}")
+            self._server = None
+            return
+        url = f"http://127.0.0.1:{self._server_port}"
+        self.b_server.setText("停止网页控制台")
+        self._log(f">>> 网页控制台已启动：{url}（桌面 GUI 与网页看的是同一个任务）")
+        QDesktopServices.openUrl(QUrl(url))
 
     def _stop(self) -> None:
         if self.worker:
@@ -364,10 +592,24 @@ class MainWindow(QMainWindow):
         if code == 0:
             self.bar_total.setValue(100)
             self.bar_file.setValue(100)
+            result = "成功"
+        elif code is None:
+            result = "已中断"
+        else:
+            result = f"失败(退出码 {code})"
         self._update_buttons()
         logger.info("done: exit=%s", code)
         self._log(f"=== 结束，退出码 {code} ===")
         pf.notify("操作完成", f"退出码 {code}")
+        if self._active:
+            self._active["result"] = result
+            self._active["ts"] = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
+            self._add_history(self._active)
+            self._active = None
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        self._save()
+        super().closeEvent(event)
 
     def _open_log_dir(self) -> None:
         from flash_device.utils.logging_setup import get_log_path
@@ -388,19 +630,50 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.information(self, "环境自检", text)
 
+    def _update_rp_chips(self) -> None:
+        for i, c in enumerate(self.chips):
+            x = str(i)
+            if self._rp_cur == x:
+                st = "background:#1f6feb33;color:#58a6ff;border:1px solid #1f6feb;"
+            elif x in self._rp_seen:
+                st = "background:#23863633;color:#3fb950;border:1px solid #238636;"
+            else:
+                st = "background:#21262d;color:#8b949e;border:1px solid #30363d;"
+            c.setStyleSheet(f"QLabel{{{st}border-radius:6px;padding:2px 8px;font-size:12px;}}")
+
     def _log(self, s: str) -> None:
         # File log first (post-mortem), panel second (live view).
         try:
             logging.getLogger("flash_device").info("%s", s)
         except Exception:
             pass
-        # Per-file bar: try to mirror latest pct from worker state
+        # rawprogram 进度方块跟踪：解析 "programming rawprogramN.xml" 点亮对应方块
+        m = re.search(r"programming (rawprogram[0-9]+)\.xml", s)
+        if m:
+            n = m.group(1).replace("rawprogram", "")
+            if n not in self._rp_seen:
+                self._rp_seen.append(n)
+            self._rp_cur = n
+            self._update_rp_chips()
+        if "raw programming ok" in s.lower() or "programming ok" in s.lower():
+            self._rp_cur = None
+            self._update_rp_chips()
+        # 当前文件进度条（来自 worker 内部状态）
         if self.worker is not None:
             try:
                 self.bar_file.setValue(int(self.worker.state.pct_in_file))
             except Exception:
                 pass
-        self.log.append(s)
+        # 报错行标红，其余原样；统一转义避免 HTML 注入
+        esc = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        is_err = (
+            bool(re.search(r"error|fail|exception|失败|错误", s, re.IGNORECASE))
+            and "no error" not in s.lower()
+        )
+        if is_err:
+            self.log.append(f'<span style="color:#f85149">{esc}</span>')
+        else:
+            self.log.append(esc)
         self.log.moveCursor(self.log.textCursor().MoveOperation.End)
 
     def _mem(self) -> list[str]:
@@ -409,6 +682,12 @@ class MainWindow(QMainWindow):
     def _do_printgpt(self) -> None:
         if not self._ready():
             return
+        self._active = {
+            "op": "打印分区表",
+            "fwdir": self.fwdir.text().strip(),
+            "loader": self.loader.text().strip(),
+            "mem": self.mem.currentText(),
+        }
         self._run(
             self._edl_cmd() + ["printgpt", f"--loader={self.loader.text().strip()}"] + self._mem()
         )
@@ -420,6 +699,13 @@ class MainWindow(QMainWindow):
         if not d:
             d = new_backup_dir("gpt")
             self._log(f">>> 未选择目录，已新建 {d}")
+        self._active = {
+            "op": "备份分区表",
+            "fwdir": self.fwdir.text().strip(),
+            "loader": self.loader.text().strip(),
+            "mem": self.mem.currentText(),
+            "target": d,
+        }
         self._run(
             self._edl_cmd() + ["gpt", d, f"--loader={self.loader.text().strip()}"] + self._mem()
         )
@@ -431,6 +717,13 @@ class MainWindow(QMainWindow):
         if not d:
             d = new_backup_dir("full")
             self._log(f">>> 未选择目录，已新建 {d}")
+        self._active = {
+            "op": "备份全部分区",
+            "fwdir": self.fwdir.text().strip(),
+            "loader": self.loader.text().strip(),
+            "mem": self.mem.currentText(),
+            "target": d,
+        }
         r = QMessageBox.question(
             self,
             "备份全部分区",
@@ -454,6 +747,13 @@ class MainWindow(QMainWindow):
         )
         if not f:
             return
+        self._active = {
+            "op": f"读取分区 {p}",
+            "fwdir": self.fwdir.text().strip(),
+            "loader": self.loader.text().strip(),
+            "mem": self.mem.currentText(),
+            "target": f,
+        }
         self._run(
             self._edl_cmd() + ["r", p, f, f"--loader={self.loader.text().strip()}"] + self._mem()
         )
@@ -478,28 +778,34 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "缺少分区表", msg)
             return
         self.raws, self.pats = raws, pats
-        if not self._confirm_backup_first("整包刷入"):
-            return
+        # 完整重刷：把目录下全部 rawprogram 一次性交给 edl（逗号分隔，覆盖 LUN0~6 所有分区）。
+        # 按用户要求不做备份，故省略备份确认，仅保留最终危险操作确认。
         r = QMessageBox.critical(
             self,
-            "危险操作",
-            guards.qfil_safety_summary(self.loader.text().strip(), d, raws[0]),
+            "危险操作：整包刷入",
+            guards.qfil_safety_summary(self.loader.text().strip(), d, raws[0])
+            + "\n\n将刷入以下分区表（全部 rawprogram，覆盖全部分区）：\n"
+            + "\n".join(os.path.basename(x) for x in raws),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         if r != QMessageBox.StandardButton.Yes:
             return
-        total = 0
-        try:
-            with open(raws[0], encoding="utf-8", errors="replace") as f:
-                total = count_program_entries(f.read())
-        except OSError:
-            total = 0
-        args = self._edl_cmd() + ["qfil", raws[0]]
-        if pats:
-            args.append(pats[0])
-        args += [d, f"--loader={self.loader.text().strip()}"] + self._mem()
-        self._run(args, total_files=total)
+        # 命令行组装与 HTTP 服务端共用同一份逻辑（backend/qfil.py）， multi-LUN 全量刷入。
+        args, total, err = build_qfil_argv(d, self.loader.text(), self.mem.currentText())
+        if err:
+            QMessageBox.warning(self, "无法启动", err)
+            return
+        summary = qfil_summary(d, self.loader.text(), len(raws), len(pats))
+        self._log(">>> " + summary)
+        self._active = {
+            "op": "整包刷入(QFIL)",
+            "fwdir": d,
+            "loader": self.loader.text().strip(),
+            "mem": self.mem.currentText(),
+            "rawprogram": len(raws),
+        }
+        self._run(args, total_files=total, status_text=summary)
 
     def _do_w(self) -> None:
         if not self._ready():
@@ -529,6 +835,13 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.No,
         )
         if r == QMessageBox.StandardButton.Yes:
+            self._active = {
+                "op": f"刷入单分区 {p}",
+                "fwdir": self.fwdir.text().strip(),
+                "loader": self.loader.text().strip(),
+                "mem": self.mem.currentText(),
+                "target": f,
+            }
             self._run(
                 self._edl_cmd()
                 + ["w", p, f, f"--loader={self.loader.text().strip()}"]
@@ -538,6 +851,12 @@ class MainWindow(QMainWindow):
     def _do_reset(self) -> None:
         if not self._ready():
             return
+        self._active = {
+            "op": "重启设备",
+            "fwdir": self.fwdir.text().strip(),
+            "loader": self.loader.text().strip(),
+            "mem": self.mem.currentText(),
+        }
         self._run(self._edl_cmd() + ["reset", f"--loader={self.loader.text().strip()}"])
 
 
@@ -576,7 +895,8 @@ def main(argv: list[str] | None = None) -> int:
         # Headless-friendly: window built, event loop pumped once, then quit.
         w.show()
         app.processEvents()
-        assert w.has_edl is False  # no device in CI; gate must stay locked
+        # 门控一致性：有 9008 才解锁刷机按钮（CI 无设备时保持锁定）。
+        assert w.b_qfil.isEnabled() == w.has_edl
         print(f"self-test-ok buttons_locked={not w.b_qfil.isEnabled()} log={log_path}")
         return 0
     w._log(f">>> 日志文件: {get_log_path()}")

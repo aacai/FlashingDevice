@@ -48,6 +48,7 @@ test = [
 
 [project.scripts]
 flash-device = "flash_device.app:main"
+flash-device-server = "flash_device.server:main"
 
 [project.gui-scripts]
 flash-device-gui = "flash_device.app:main"

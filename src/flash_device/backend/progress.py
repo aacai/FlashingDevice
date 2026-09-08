@@ -100,6 +100,14 @@ def parse_line(line: str, state: ProgressState) -> ProgressState:
     return state
 
 
+def is_progress_line(line: str) -> bool:
+    """True for pure EDL progress rewrites (Progress: |██| 50% ...)."""
+    clean = line.replace("\r", "\n").split("\n")[-1].strip()
+    if not clean:
+        return False
+    return _PROGRESS_RE.search(clean) is not None
+
+
 def count_program_entries(rawprogram_xml_text: str) -> int:
     """Count <program .../> entries for total_files estimate. 0 if unparseable."""
     try:
