@@ -44,6 +44,7 @@ from PyQt6.QtWidgets import (
 
 from flash_device.backend.qfil import build_qfil_argv, qfil_summary
 from flash_device.backend.qt_bridge import JobWorker
+from flash_device.devices.firmware import validate_fwdir
 from flash_device.devices.loaders import copy_into_library
 from flash_device.devices.loaders import scan as scan_loaders
 from flash_device.safety import guards
@@ -494,6 +495,13 @@ class MainWindow(QMainWindow):
             info.append(f"补丁 patch（{len(pats)} 个）:")
             for x in pats:
                 info.append(f"  • {os.path.basename(x)}")
+        rep = validate_fwdir(d, self.loader.text().strip(), self.mem.currentText())
+        mark = {"ok": "✅", "warn": "⚠️", "error": "⛔"}[rep.level]
+        info.append(f"{mark} 包校验[{rep.level}]：{rep.summary()}")
+        for w in rep.warnings[:4]:
+            info.append(f"  ⚠ {w}")
+        for e in rep.errors[:4]:
+            info.append(f"  ⛔ {e}")
         self.fwinfos.setText("\n".join(info) + extra)
 
     # ---------------- device poll ----------------
@@ -875,6 +883,32 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "缺少分区表", msg)
             return
         self.raws, self.pats = raws, pats
+        # 标准包校验：error 直接拦（刷不了），warn 二次确认。
+        rep = validate_fwdir(d, self.loader.text(), self.mem.currentText())
+        self._log(">>> 包校验：" + rep.summary())
+        for w in rep.warnings:
+            self._log(f"    ⚠ {w}")
+        if rep.level == "error":
+            QMessageBox.critical(
+                self,
+                "包校验不通过，禁止刷入",
+                "这个目录不是标准刷机包，刷了大概率失败：\n\n"
+                + "\n".join(f"• {e}" for e in rep.errors)
+                + "\n\n请重选目录（QFIL 包=rawprogram*.xml+镜像齐全）。",
+            )
+            return
+        if rep.warnings:
+            r0 = QMessageBox.warning(
+                self,
+                "包校验有警告",
+                "包基本可用，但有以下可疑点：\n\n"
+                + "\n".join(f"• {w}" for w in rep.warnings)
+                + "\n\n还要继续吗？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if r0 != QMessageBox.StandardButton.Yes:
+                return
         # 完整重刷：把目录下全部 rawprogram 一次性交给 edl（逗号分隔，覆盖 LUN0~6 所有分区）。
         # 按用户要求不做备份，故省略备份确认，仅保留最终危险操作确认。
         r = QMessageBox.critical(

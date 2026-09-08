@@ -269,9 +269,15 @@ class Handler(BaseHTTPRequestHandler):
             if err:
                 self._json({"error": err}, 400)
                 return
+            from flash_device.devices.firmware import validate_fwdir
+
+            rep = validate_fwdir(fwdir, loader, memory)
+            if rep.level == "error":
+                self._json({"error": "包校验不通过：" + "；".join(rep.errors)}, 400)
+                return
             job = MANAGER.start(f"整包刷入 {os.path.basename(fwdir)}", args, total_files=total)
             logger.info("qfil job %s: %s", job.id, " ".join(args))
-            self._json({"job_id": job.id})
+            self._json({"job_id": job.id, "warnings": rep.warnings, "summary": rep.summary()})
             return
         parts = path.strip("/").split("/")
         if len(parts) == 4 and parts[0] == "api" and parts[1] == "jobs" and parts[3] == "stop":
