@@ -246,12 +246,25 @@ class Handler(BaseHTTPRequestHandler):
             fwdir = (data.get("fwdir") or "").strip()
             loader = (data.get("loader") or "").strip()
             memory = (data.get("memory") or "ufs").strip()
+            expect_serial = (data.get("expect_serial") or "").strip()
             g = guards.require_edl_present(
                 bool([d for d in scan_devices() if d[3] in guards.EDL_PIDS])
             )
             if not g.ok:
                 self._json({"error": g.message}, 409)
                 return
+            if expect_serial:
+                from flash_device.utils.usb import get_edl_serial
+
+                sn = get_edl_serial()
+                if sn != expect_serial:
+                    self._json(
+                        {
+                            "error": f"9008 序列号是 {sn or '未知'}，不是期望的 {expect_serial}，拒绝开刷（防刷错机）"
+                        },
+                        409,
+                    )
+                    return
             args, total, err = build_qfil_args(fwdir, loader, memory)
             if err:
                 self._json({"error": err}, 400)

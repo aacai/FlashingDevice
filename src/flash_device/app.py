@@ -44,12 +44,14 @@ from PyQt6.QtWidgets import (
 
 from flash_device.backend.qfil import build_qfil_argv, qfil_summary
 from flash_device.backend.qt_bridge import JobWorker
+from flash_device.devices.loaders import copy_into_library
+from flash_device.devices.loaders import scan as scan_loaders
 from flash_device.safety import guards
 from flash_device.safety.backup import default_backup_root, new_backup_dir
 from flash_device.utils import platform as pf
 from flash_device.utils.envcheck import format_checks, run_all_checks
 from flash_device.utils.logging_setup import get_logger
-from flash_device.utils.usb import rank_device, scan_devices
+from flash_device.utils.usb import get_edl_serial, rank_device, scan_devices
 
 logger = get_logger(__name__)
 
@@ -106,6 +108,7 @@ class MainWindow(QMainWindow):
         self.worker: JobWorker | None = None
         self.seen_9008 = False
         self.has_edl = False
+        self._edl_sn = ""
         self.raws: list[str] = []
         self.pats: list[str] = []
         self._build_ui()
@@ -161,14 +164,17 @@ class MainWindow(QMainWindow):
         gl.addWidget(self.hint)
         v.addWidget(gb)
 
-        gb2 = QGroupBox("Firehose 编程器 (Loader，自备，不进仓)")
+        gb2 = QGroupBox("Firehose 编程器 (Loader：点“扫描本机”自动找，自备，不进仓)")
         g2 = QHBoxLayout(gb2)
         self.loader = QLineEdit()
         self.loader.setPlaceholderText("prog_firehose_*.elf / *.mbn")
         b2 = QPushButton("浏览…")
         b2.clicked.connect(self._pick_loader)
+        bscan = QPushButton("扫描本机…")
+        bscan.clicked.connect(self._scan_loaders)
         g2.addWidget(self.loader, 1)
         g2.addWidget(b2)
+        g2.addWidget(bscan)
         v.addWidget(gb2)
 
         gb3 = QGroupBox("固件目录（本地，不进仓）")
@@ -397,6 +403,63 @@ class MainWindow(QMainWindow):
             self.loader.setText(p)
             self._save()
 
+    def _scan_loaders(self) -> None:
+        """扫描本机 loader（我的库→本仓子模块→当前固件目录），选中即用，可一键入库。"""
+        from PyQt6.QtWidgets import QDialog
+
+        found = scan_loaders([self.fwdir.text().strip()] if self.fwdir.text().strip() else [])
+        if not found:
+            QMessageBox.information(
+                self,
+                "扫描本机",
+                "没找到任何 loader。\n\n去向：① 固件包自带（如小米包内 prog_*.elf）；"
+                "② git submodule update --init --recursive 拉 bkerler/Loaders；"
+                "③ 把手头 loader 放进 ~/.flash-device/loaders/。\n详见 docs/LOADERS.md。",
+            )
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"本机 loader（{len(found)} 个）")
+        dlg.resize(640, 380)
+        lay = QVBoxLayout(dlg)
+        lst = QListWidget()
+        for info in found:
+            QListWidgetItem(info.short, lst)
+        lst.setCurrentRow(0)
+        lay.addWidget(lst, 1)
+        btns = QHBoxLayout()
+        b_use = QPushButton("选用")
+        b_save = QPushButton("存入我的库")
+        b_close = QPushButton("关闭")
+        btns.addWidget(b_use)
+        btns.addWidget(b_save)
+        btns.addStretch(1)
+        btns.addWidget(b_close)
+        lay.addLayout(btns)
+
+        def use():
+            row = lst.currentRow()
+            if 0 <= row < len(found):
+                self.loader.setText(found[row].path)
+                self._save()
+                self._log(f">>> 已选 loader：{found[row].short}\n    {found[row].path}")
+                dlg.accept()
+
+        def save():
+            row = lst.currentRow()
+            if 0 <= row < len(found):
+                try:
+                    dst = copy_into_library(found[row].path)
+                    self._log(f">>> 已入库：{dst}")
+                    QMessageBox.information(self, "入库", f"已存入：\n{dst}")
+                except OSError as e:
+                    QMessageBox.warning(self, "入库失败", str(e))
+
+        b_use.clicked.connect(use)
+        b_save.clicked.connect(save)
+        b_close.clicked.connect(dlg.reject)
+        lst.itemDoubleClicked.connect(lambda *_: use())
+        dlg.exec()
+
     def _pick_fw(self) -> None:
         p = QFileDialog.getExistingDirectory(self, "选择固件目录", os.path.expanduser("~"))
         if p:
@@ -455,12 +518,15 @@ class MainWindow(QMainWindow):
         if edl:
             b, p, vid, pid, nm = edl[0]
             self._set("#3ddc84", "✅  9008 已连接 —— 可以操作")
-            self.detail.setText(f"{vid:04x}:{pid:04x}    Bus {b}  Port {p}    {nm}")
+            sn = get_edl_serial()
+            self._edl_sn = sn
+            extra = f"    SN:{sn}" if sn else ""
+            self.detail.setText(f"{vid:04x}:{pid:04x}    Bus {b}  Port {p}    {nm}{extra}")
             self.hint.setText("已强制要求： destructive 操作前先备份，整包/单写需二次确认。")
             if not self.seen_9008:
                 self.seen_9008 = True
                 pf.notify("9008 已连接", f"检测到 {vid:04x}:{pid:04x}")
-                self._log(f">>> 检测到 9008 设备 {vid:04x}:{pid:04x}")
+                self._log(f">>> 检测到 9008 设备 {vid:04x}:{pid:04x}" + (f" SN:{sn}" if sn else ""))
             return
         self.seen_9008 = False
         if not ordered:
@@ -521,6 +587,8 @@ class MainWindow(QMainWindow):
         self.worker.line.connect(self._log)
         self.worker.progress.connect(self._on_progress)
         self.worker.done.connect(self._finished)
+        self._job_start = time.monotonic()
+        self._no_upload_warned = False
         self._update_buttons()
         self.worker.start()
 
@@ -534,6 +602,9 @@ class MainWindow(QMainWindow):
         self.op_label.setText(
             f"正在刷：{what}    总进度 {overall:.1f}%    当前文件 {file_pct:.0f}%"
         )
+
+    # 残留会话超时：超过这么久还没上传 loader，基本就是连上旧会话，继续等=浪费时间。
+    STALE_SESSION_TIMEOUT = 120
 
     def _heartbeat(self) -> None:
         """1s 心跳：即使信号通路异常，也直接从 job 快照刷新进度条；卡住肉眼可见。"""
@@ -552,9 +623,35 @@ class MainWindow(QMainWindow):
                 age = int(time.monotonic() - self._last_prog_ts)
                 self.heartbeat.setText(f"● 进度{age}s前更新" if age > 1 else "● 进度实时同步中")
             self.heartbeat.setStyleSheet("color:#3fb950; font-size:12px;")
+            self._watch_stale_session(w)
         else:
             self.heartbeat.setText("空闲")
             self.heartbeat.setStyleSheet("color:#8b949e; font-size:12px;")
+
+    def _watch_stale_session(self, w) -> None:
+        """残留会话看门狗：超 120s 还没 Uploading loader → 自动停并提示拔线重进。
+
+        这就是 LGU/SKT 假刷的根因：连上旧 firehose 会话，进度空转 0 写入。
+        """
+        if getattr(self, "_no_upload_warned", False):
+            return
+        start = getattr(self, "_job_start", None)
+        if start is None or time.monotonic() - start < self.STALE_SESSION_TIMEOUT:
+            return
+        try:
+            recent = " ".join(list(w.job.log)[-60:])
+        except Exception:
+            return
+        if "Uploading loader" not in recent and w.job.state != "done":
+            self._no_upload_warned = True
+            w.kill()
+            msg = (
+                "120 秒还没上传 loader：连上的是残留会话，继续等也不会写进去。\n\n"
+                "请拔线等 5 秒、重进 9008 后再刷一次。"
+            )
+            self._log(">>> [看门狗] " + msg.replace("\n", " "))
+            logger.warning("stale session detected, job killed")
+            QMessageBox.warning(self, "疑似残留会话，已自动停止", msg)
 
     def _toggle_server(self) -> None:
         if self._server is not None:

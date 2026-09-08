@@ -36,6 +36,31 @@ def scan_devices() -> list[tuple]:
     return out
 
 
+def get_edl_serial() -> str:
+    """Return the USB serial of the first 9008/900E device, '' if none.
+
+    序列号是认设备的唯一靠谱办法（LG V50=6A738FEE，小米平板6=169621F5），
+    自动脚本开刷前必须核对，杜绝刷错机。
+    """
+    try:
+        import usb.core  # type: ignore
+
+        for pid in sorted(EDL_PIDS):
+            try:
+                d = usb.core.find(idVendor=0x05C6, idProduct=pid)
+            except Exception:
+                continue
+            if d is None:
+                continue
+            try:
+                return d.serial_number or ""
+            except Exception:
+                return "?"
+    except Exception:
+        pass
+    return ""
+
+
 def rank_device(d: tuple) -> int:
     pid = d[3]
     if pid in EDL_PIDS:
