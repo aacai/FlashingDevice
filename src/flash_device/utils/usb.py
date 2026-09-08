@@ -37,11 +37,15 @@ def scan_devices() -> list[tuple]:
 
 
 def get_edl_serial() -> str:
-    """Return the USB serial of the first 9008/900E device, '' if none.
+    """Return the serial of the first 9008/900E device, '' if none.
 
     序列号是认设备的唯一靠谱办法（LG V50=6A738FEE，小米平板6=169621F5），
     自动脚本开刷前必须核对，杜绝刷错机。
+    注意：9008 的 USB 序列号描述符经常为空，SN 藏在 product 字符串里
+    （如 "QUSB_BULK_CID:0404_SN:6A738FEE"），两处都试。
     """
+    import re
+
     try:
         import usb.core  # type: ignore
 
@@ -53,9 +57,17 @@ def get_edl_serial() -> str:
             if d is None:
                 continue
             try:
-                return d.serial_number or ""
+                if d.serial_number:
+                    return d.serial_number
             except Exception:
-                return "?"
+                pass
+            try:
+                m = re.search(r"SN:([0-9A-Fa-f]+)", d.product or "")
+                if m:
+                    return m.group(1).upper()
+            except Exception:
+                pass
+            return "?"
     except Exception:
         pass
     return ""
