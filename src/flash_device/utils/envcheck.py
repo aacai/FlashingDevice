@@ -95,6 +95,18 @@ def check_libusb() -> EnvCheck:
 
 
 def check_edl_submodule() -> EnvCheck:
+    from flash_device.utils import platform as _pf
+
+    if _pf.is_frozen():
+        bundled = _pf.bundled_edl_py()
+        if bundled:
+            return EnvCheck("EDL 引擎（随包）", True, bundled)
+        return EnvCheck(
+            "EDL 引擎（随包）",
+            False,
+            "包内 third_party/edl/edl.py 缺失",
+            "重新下载 Release 包；dev 则 git submodule update --init --recursive。",
+        )
     here = os.path.dirname(os.path.abspath(__file__))
     edl_py = os.path.normpath(os.path.join(here, "..", "..", "..", "third_party", "edl", "edl.py"))
     if os.path.isfile(edl_py):
@@ -105,6 +117,43 @@ def check_edl_submodule() -> EnvCheck:
         "third_party/edl 为空",
         "git submodule update --init --recursive（见 README 的 submodule 小节）。",
     )
+
+
+def check_edl_python() -> EnvCheck:
+    """Frozen bundles run edl.py via SYSTEM python3 -> it needs edl's own deps."""
+    from flash_device.utils import platform as _pf
+
+    if not _pf.is_frozen():
+        return EnvCheck("EDL 解释器", True, "开发模式：复用当前解释器")
+    py = shutil.which("python3")
+    if not py:
+        return EnvCheck(
+            "EDL 解释器",
+            False,
+            "冻包自身不是解释器，但找不到系统 python3 来跑 edl.py",
+            "装官方 Python 3.10+ 并确保 python3 在 PATH。",
+        )
+    import subprocess
+
+    try:
+        r = subprocess.run(
+            [py, "-c", "import usb, serial, lxml.etree"],
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+    except Exception as e:
+        return EnvCheck("EDL 解释器", False, f"无法执行 {py}: {e}", "重装官方 Python 后重试。")
+    if r.returncode != 0:
+        err = (r.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+        tail = err[-1] if err else ""
+        return EnvCheck(
+            "EDL 解释器",
+            False,
+            f"{py} 缺 EDL 依赖 ({tail})",
+            f"{py} -m pip install pyusb pyserial lxml",
+        )
+    return EnvCheck("EDL 解释器", True, f"{py} 自带 EDL 依赖就绪")
 
 
 def check_platform_extras() -> EnvCheck:
@@ -136,6 +185,7 @@ def run_all_checks() -> list[EnvCheck]:
         check_py_packages(),
         check_libusb(),
         check_edl_submodule(),
+        check_edl_python(),
         check_adb(),
         check_platform_extras(),
     ]

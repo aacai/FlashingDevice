@@ -33,12 +33,24 @@ jobs:
           pip install -r requirements.txt pyinstaller pytest
           pip install -e .
       - name: Smoke test (no device needed)
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: |
           python -m pytest -q
-          python -c "from flash_device.backend.progress import parse_line, ProgressState; s=ProgressState(); parse_line('Progress: |x| 10.0% Write foo', s); print(s)"
-      - name: PyInstaller (onedir)
+          python -m flash_device --check-env || true
+          python -m flash_device --self-test
+      - name: PyInstaller (spec, onedir)
         run: |
-          pyinstaller --noconfirm --onedir --name flash-device --paths src src/flash_device/__main__.py
+          pyinstaller packaging/pyinstaller.spec
+      - name: Smoke test frozen bundle
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          BIN=./dist/flash-device/flash-device
+          [ -f "$BIN.exe" ] && BIN="$BIN.exe"
+          "$BIN" --check-env || true
+          "$BIN" --self-test
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

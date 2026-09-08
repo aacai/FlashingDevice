@@ -2,6 +2,7 @@
 
 GUI:            python -m flash_device
 Env preflight:  python -m flash_device --check-env   (works without PyQt6)
+GUI smoke:      QT_QPA_PLATFORM=offscreen python -m flash_device --self-test
 """
 
 import sys
@@ -10,7 +11,9 @@ import sys
 def _preparse():
     import argparse
 
-    ap = argparse.ArgumentParser(prog="flash-device", description="Qualcomm 9008 / EDL flashing tool")
+    ap = argparse.ArgumentParser(
+        prog="flash-device", description="Qualcomm 9008 / EDL flashing tool"
+    )
     ap.add_argument("--check-env", action="store_true", help="只做环境自检并退出（缺什么补什么）")
     ap.add_argument("--log-level", default="INFO", help="日志级别：DEBUG/INFO/WARNING")
     ns, rest = ap.parse_known_args(sys.argv[1:])

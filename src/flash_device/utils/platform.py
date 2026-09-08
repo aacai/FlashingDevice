@@ -22,18 +22,45 @@ def log_dir() -> str:
     return d
 
 
+def is_frozen() -> bool:
+    """True when running inside a PyInstaller bundle."""
+    return bool(getattr(sys, "frozen", False))
+
+
+def bundle_root() -> str:
+    """Directory holding bundled data (sys._MEIPASS when frozen)."""
+    if is_frozen():
+        base = getattr(sys, "_MEIPASS", "")
+        if base:
+            return str(base)
+    return ""
+
+
+def bundled_edl_py() -> str:
+    """Path of the EDL engine shipped INSIDE the bundle ('' when absent)."""
+    root = bundle_root()
+    if not root:
+        return ""
+    cand = os.path.join(root, "third_party", "edl", "edl.py")
+    return cand if os.path.isfile(cand) else ""
+
+
 def resolve_edl_bin(explicit: str = "") -> str:
-    """Priority: explicit > sibling third_party/edl/edl.py via current python > PATH edl."""
+    """Priority: explicit > bundled (frozen) / repo third_party (dev) > PATH edl."""
     if explicit and os.path.exists(explicit):
         return explicit
-    # Packaged PyInstaller: edl.py is bundled next to executable
-    here = os.path.dirname(os.path.abspath(__file__))
-    for cand in (
-        os.path.join(here, "..", "..", "..", "third_party", "edl", "edl.py"),
-        os.path.join(os.getcwd(), "third_party", "edl", "edl.py"),
-    ):
-        if os.path.isfile(os.path.normpath(cand)):
-            return os.path.normpath(cand)
+    if is_frozen():
+        bundled = bundled_edl_py()
+        if bundled:
+            return bundled
+    else:
+        here = os.path.dirname(os.path.abspath(__file__))
+        for cand in (
+            os.path.join(here, "..", "..", "..", "third_party", "edl", "edl.py"),
+            os.path.join(os.getcwd(), "third_party", "edl", "edl.py"),
+        ):
+            if os.path.isfile(os.path.normpath(cand)):
+                return os.path.normpath(cand)
     found = shutil.which("edl")
     if found:
         return found
@@ -41,6 +68,13 @@ def resolve_edl_bin(explicit: str = "") -> str:
 
 
 def python_for_edl() -> str:
+    """Interpreter used to run edl.py.
+
+    Frozen bundles are not interpreters, so they shell out to system python3
+    (envcheck verifies it); dev mode reuses the current interpreter.
+    """
+    if is_frozen():
+        return shutil.which("python3") or "python3"
     return sys.executable or "python3"
 
 

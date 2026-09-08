@@ -27,11 +27,24 @@ jobs:
         with:
           python-version: "3.11"
       - name: Build
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller
+          pip install -r requirements.txt pyinstaller pytest
           pip install -e .
-          pyinstaller --noconfirm --onedir --name flash-device --paths src src/flash_device/__main__.py
+          python -m pytest -q
+          python -m flash_device --self-test
+          pyinstaller packaging/pyinstaller.spec
+      - name: Smoke test frozen bundle
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          BIN=./dist/flash-device/flash-device
+          [ -f "$BIN.exe" ] && BIN="$BIN.exe"
+          "$BIN" --check-env || true
+          "$BIN" --self-test
       - name: Pack
         shell: bash
         run: |

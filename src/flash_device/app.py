@@ -550,6 +550,11 @@ def main(argv: list[str] | None = None) -> int:
         prog="flash-device", description="Qualcomm 9008 / EDL flashing tool"
     )
     ap.add_argument("--check-env", action="store_true", help="只做环境自检并退出（缺什么补什么）")
+    ap.add_argument(
+        "--self-test",
+        action="store_true",
+        help="构建 MainWindow 后直接退出（CI/冻包冒烟用，需显示或 QT_QPA_PLATFORM=offscreen）",
+    )
     ap.add_argument("--log-level", default="INFO", help="日志级别：DEBUG/INFO/WARNING")
     ns = ap.parse_args(argv)
 
@@ -567,6 +572,13 @@ def main(argv: list[str] | None = None) -> int:
     app.setOrganizationName(ORG)
     w = MainWindow()
     w.logpath_label.setText(f"日志: {get_log_path()}")
+    if ns.self_test:
+        # Headless-friendly: window built, event loop pumped once, then quit.
+        w.show()
+        app.processEvents()
+        assert w.has_edl is False  # no device in CI; gate must stay locked
+        print(f"self-test-ok buttons_locked={not w.b_qfil.isEnabled()} log={log_path}")
+        return 0
     w._log(f">>> 日志文件: {get_log_path()}")
     missing = [c for c in checks if not c.ok]
     if missing:
