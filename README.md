@@ -71,6 +71,12 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 # disable ModemManager: sudo systemctl disable --now ModemManager
 ```
 
+Linux system libs for the GUI (also needed for the portable tarball):
+
+```bash
+sudo apt install libegl1 libgl1 libopengl0 libxkbcommon0 libdbus-1-3 libfontconfig1
+```
+
 See `docs/SAFETY.md`, `docs/DEVICES.md`, `firmware/README.md`.
 
 ## Firmware policy

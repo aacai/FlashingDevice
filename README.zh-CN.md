@@ -59,6 +59,8 @@ Linux：
 sudo cp tools/udev/51-edl.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules && sudo udevadm trigger
 sudo systemctl disable --now ModemManager
+# GUI 系统库（便携包也要）：
+sudo apt install libegl1 libgl1 libopengl0 libxkbcommon0 libdbus-1-3 libfontconfig1
 ```
 
 macOS：用 python.org 官方 pkg 装 Python（不要用 brew），直连 USB-C，不要经过 hub。
