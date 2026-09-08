@@ -10,14 +10,12 @@
 from __future__ import annotations
 
 import glob
-import json
 import logging
 import os
 import re
 import sys
 import threading
 import time
-from datetime import datetime
 
 from PyQt6.QtCore import QSettings, Qt, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QFont
@@ -114,10 +112,8 @@ class MainWindow(QMainWindow):
         self.pats: list[str] = []
         self._build_ui()
         self._restore()
-        self._active = None
         self._rp_seen: list[str] = []
         self._rp_cur: str | None = None
-        self._render_history()
         self._last_prog_ts: float | None = None
         self._server = None
         self._server_thread = None
@@ -231,27 +227,7 @@ class MainWindow(QMainWindow):
         self.b_stop.clicked.connect(self._stop)
         v.addWidget(gb4)
 
-        gb_h = QGroupBox("刷机历史（点“恢复选中项”可一键回填当时选择，免得重选）")
-        gh = QVBoxLayout(gb_h)
-        hr = QHBoxLayout()
-        self.hist = QListWidget()
-        self.hist.setStyleSheet(
-            "background:#131316; border:1px solid #30303a; border-radius:6px;"
-            "color:#c8c8d0; font-size:12px;"
-        )
-        self.hist.setMaximumHeight(120)
-        hr.addWidget(self.hist, 1)
-        hbtn = QVBoxLayout()
-        self.b_hist_apply = QPushButton("恢复选中项")
-        self.b_hist_clear = QPushButton("清空历史")
-        hbtn.addWidget(self.b_hist_apply)
-        hbtn.addWidget(self.b_hist_clear)
-        hbtn.addStretch(1)
-        hr.addLayout(hbtn)
-        gh.addLayout(hr)
-        self.b_hist_apply.clicked.connect(self._apply_history)
-        self.b_hist_clear.clicked.connect(self._clear_history)
-        v.addWidget(gb_h)
+
 
         gb5 = QGroupBox("日志与进度（每次运行都写入文件，方便事后复盘）")
         g5 = QVBoxLayout(gb5)
@@ -326,71 +302,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("fwdir", self.fwdir.text())
         self.settings.setValue("mem", self.mem.currentText())
 
-    # ---------------- flash history ----------------
-    def _history_path(self) -> str:
-        from flash_device.utils.logging_setup import get_log_path
 
-        p = get_log_path() or os.path.expanduser("~/flash_device.log")
-        return os.path.join(os.path.dirname(p), "flash_history.json")
-
-    def _load_history(self) -> list[dict]:
-        try:
-            with open(self._history_path(), encoding="utf-8") as f:
-                data = json.load(f)
-                return data if isinstance(data, list) else []
-        except Exception:
-            return []
-
-    def _add_history(self, entry: dict) -> None:
-        hist = self._load_history()
-        hist.insert(0, entry)
-        hist = hist[:50]
-        try:
-            os.makedirs(os.path.dirname(self._history_path()), exist_ok=True)
-            with open(self._history_path(), "w", encoding="utf-8") as f:
-                json.dump(hist, f, indent=2, ensure_ascii=False)
-        except Exception:
-            pass
-        self._render_history()
-
-    def _render_history(self) -> None:
-        self.hist.clear()
-        for e in self._load_history():
-            op = e.get("op", "?")
-            fw = os.path.basename(e.get("fwdir", "") or e.get("target", "") or "?")
-            res = e.get("result", "")
-            ts = e.get("ts", "")
-            label = f"{ts}  ·  {op}  ·  {fw}  ·  {res}"
-            item = QListWidgetItem(label)
-            item.setData(Qt.ItemDataRole.UserRole, e)
-            self.hist.addItem(item)
-
-    def _apply_history(self) -> None:
-        it = self.hist.currentItem()
-        if not it:
-            return
-        e = it.data(Qt.ItemDataRole.UserRole)
-        if not e:
-            return
-        fw = e.get("fwdir", "")
-        if fw:
-            self.fwdir.setText(fw)
-            self._scan_fw()
-        if e.get("loader"):
-            self.loader.setText(e["loader"])
-        mem = e.get("mem")
-        if mem:
-            idx = self.mem.findText(mem)
-            if idx >= 0:
-                self.mem.setCurrentIndex(idx)
-        self._save()
-
-    def _clear_history(self) -> None:
-        try:
-            os.remove(self._history_path())
-        except OSError:
-            pass
-        self._render_history()
 
     # ---------------- pickers ----------------
     def _pick_loader(self) -> None:
@@ -704,13 +616,9 @@ class MainWindow(QMainWindow):
             result = f"失败(退出码 {code})"
         self._update_buttons()
         logger.info("done: exit=%s", code)
-        self._log(f"=== 结束，退出码 {code} ===")
-        pf.notify("操作完成", f"退出码 {code}")
-        if self._active:
-            self._active["result"] = result
-            self._active["ts"] = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
-            self._add_history(self._active)
-            self._active = None
+        self._log(f"=== 结束：{result} ===")
+        pf.notify("操作完成", result)
+
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self._save()
@@ -787,12 +695,7 @@ class MainWindow(QMainWindow):
     def _do_printgpt(self) -> None:
         if not self._ready():
             return
-        self._active = {
-            "op": "打印分区表",
-            "fwdir": self.fwdir.text().strip(),
-            "loader": self.loader.text().strip(),
-            "mem": self.mem.currentText(),
-        }
+
         self._run(
             self._edl_cmd() + ["printgpt", f"--loader={self.loader.text().strip()}"] + self._mem()
         )
@@ -804,13 +707,7 @@ class MainWindow(QMainWindow):
         if not d:
             d = new_backup_dir("gpt")
             self._log(f">>> 未选择目录，已新建 {d}")
-        self._active = {
-            "op": "备份分区表",
-            "fwdir": self.fwdir.text().strip(),
-            "loader": self.loader.text().strip(),
-            "mem": self.mem.currentText(),
-            "target": d,
-        }
+
         self._run(
             self._edl_cmd() + ["gpt", d, f"--loader={self.loader.text().strip()}"] + self._mem()
         )
@@ -822,13 +719,7 @@ class MainWindow(QMainWindow):
         if not d:
             d = new_backup_dir("full")
             self._log(f">>> 未选择目录，已新建 {d}")
-        self._active = {
-            "op": "备份全部分区",
-            "fwdir": self.fwdir.text().strip(),
-            "loader": self.loader.text().strip(),
-            "mem": self.mem.currentText(),
-            "target": d,
-        }
+
         r = QMessageBox.question(
             self,
             "备份全部分区",
@@ -852,13 +743,7 @@ class MainWindow(QMainWindow):
         )
         if not f:
             return
-        self._active = {
-            "op": f"读取分区 {p}",
-            "fwdir": self.fwdir.text().strip(),
-            "loader": self.loader.text().strip(),
-            "mem": self.mem.currentText(),
-            "target": f,
-        }
+
         self._run(
             self._edl_cmd() + ["r", p, f, f"--loader={self.loader.text().strip()}"] + self._mem()
         )
@@ -929,13 +814,7 @@ class MainWindow(QMainWindow):
             return
         summary = qfil_summary(d, self.loader.text(), len(raws), len(pats))
         self._log(">>> " + summary)
-        self._active = {
-            "op": "整包刷入(QFIL)",
-            "fwdir": d,
-            "loader": self.loader.text().strip(),
-            "mem": self.mem.currentText(),
-            "rawprogram": len(raws),
-        }
+
         self._run(args, total_files=total, status_text=summary)
 
     def _do_w(self) -> None:
@@ -966,13 +845,7 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.No,
         )
         if r == QMessageBox.StandardButton.Yes:
-            self._active = {
-                "op": f"刷入单分区 {p}",
-                "fwdir": self.fwdir.text().strip(),
-                "loader": self.loader.text().strip(),
-                "mem": self.mem.currentText(),
-                "target": f,
-            }
+
             self._run(
                 self._edl_cmd()
                 + ["w", p, f, f"--loader={self.loader.text().strip()}"]
@@ -982,12 +855,7 @@ class MainWindow(QMainWindow):
     def _do_reset(self) -> None:
         if not self._ready():
             return
-        self._active = {
-            "op": "重启设备",
-            "fwdir": self.fwdir.text().strip(),
-            "loader": self.loader.text().strip(),
-            "mem": self.mem.currentText(),
-        }
+
         self._run(self._edl_cmd() + ["reset", f"--loader={self.loader.text().strip()}"])
 
 

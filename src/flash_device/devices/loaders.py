@@ -20,6 +20,24 @@ from flash_device.utils.platform import app_data_dir
 LOADER_SUFFIX = (".elf", ".mbn", ".bin")
 MAX_SCAN_FILES = 500
 
+# 出厂通用名对照（按 sha256 精确匹配，文件名再怎么变也不会认错）：
+# bkerler/Loaders 仓用 MSMID_PKHASH 长名（如 000a50e1_…_fhprg_lg_g8x.bin），
+# 原厂通用名一般是 prog_ufs_firehose_smXXXX_ddr.elf 格式，两者可能是同一文件。
+KNOWN_LOADERS = {
+    # LG V50 (sm8150)，本机实测 9008 可用
+    "caca45707b5dad61c2e6bd6de27a377a28ac1197cc3c809401684485a0991947": (
+        "LG V50 (sm8150) Firehose【出厂通用名：prog_ufs_firehose_sm8150_ddr.elf】"
+    ),
+    # 小米平板6 pipa (sm8250)，包内自带，实测整包刷入成功
+    "bd1da5b2a92f3731c7f3f5f7072587e0ade0b025593ea9f1cfd2d24ddaeaea94": (
+        "小米平板6 pipa (sm8250) Firehose【包内原名：prog_ufs_firehose_sm8250_ddr_5.elf】"
+    ),
+}
+
+
+def friendly_name(sha256: str, filename: str) -> str:
+    return KNOWN_LOADERS.get(sha256, filename)
+
 
 @dataclass
 class LoaderInfo:
@@ -31,7 +49,8 @@ class LoaderInfo:
 
     @property
     def short(self) -> str:
-        return f"{self.name}  [{self.source} {self.size // 1024}KB {self.sha256[:12]}…]"
+        show = friendly_name(self.sha256, self.name)
+        return f"{show}  [{self.source} {self.size // 1024}KB {self.sha256[:12]}…]"
 
 
 def library_dir() -> str:
