@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>玩机终极指南：Magisk 隐藏 Root / TWRP / GSI 通刷教程</title>
+<style>
+  :root { --bg:#0f1115; --card:#171b22; --line:#262c36; --txt:#e6e9ef; --mut:#9aa3b2;
+          --acc:#4da3ff; --ok:#3ddc84; --warn:#ffb020; --bad:#ff5d5d; --code:#0b0e12; }
+  * { box-sizing:border-box; }
+  body { background:var(--bg); color:var(--txt); font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+         margin:0; line-height:1.75; }
+  .wrap { max-width:960px; margin:0 auto; padding:24px 18px 80px; }
+  header.hero { background:linear-gradient(135deg,#13233d,#1a1030); border:1px solid var(--line);
+    border-radius:14px; padding:28px 24px; margin-bottom:22px; }
+  header.hero h1 { margin:0 0 8px; font-size:26px; }
+  header.hero p { margin:4px 0; color:var(--mut); }
+  nav.toc { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 20px; margin-bottom:22px; }
+  nav.toc a { color:var(--acc); text-decoration:none; }
+  nav.toc li { margin:4px 0; }
+  section.card { background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:20px 22px; margin-bottom:20px; }
+  h2 { font-size:21px; border-left:4px solid var(--acc); padding-left:10px; margin:4px 0 14px; }
+  h3 { font-size:17px; color:var(--acc); margin:20px 0 8px; }
+  h4 { font-size:15px; margin:14px 0 6px; }
+  a { color:var(--acc); word-break:break-all; }
+  code { background:#222936; padding:1px 7px; border-radius:6px; font-family:Menlo,Consolas,monospace; font-size:13px; }
+  pre { background:var(--code); border:1px solid var(--line); border-radius:10px; padding:14px 16px;
+    overflow-x:auto; font-size:13px; }
+  pre code { background:none; padding:0; }
+  table { width:100%; border-collapse:collapse; font-size:14px; margin:10px 0; }
+  th,td { border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:#1e242e; }
+  .warn,.ok,.bad { border-radius:10px; padding:12px 16px; margin:12px 0; font-size:14px; }
+  .warn { background:#2a2111; border:1px solid #6b5416; }
+  .ok { background:#0f2a1e; border:1px solid #1d5c3a; }
+  .bad { background:#2c1414; border:1px solid #6e2222; }
+  ol li,ul li { margin:6px 0; }
+  .tag { display:inline-block; font-size:12px; background:#22314a; color:#bcd7ff;
+    border-radius:20px; padding:1px 10px; margin-right:6px; }
+  footer { color:var(--mut); font-size:13px; text-align:center; margin-top:30px; }
+  .step { counter-increment:step; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>📱 玩机终极指南：Magisk 隐藏 Root · TWRP · GSI 通刷</h1>
+  <p>适用：已解 BL 锁的骁龙 / 天玑 / 三星 / Pixel 等设备 · Android 10～15</p>
+  <p>三大部分：<b>① 装面具并藏好 Root</b> → <b>② 刷 TWRP</b> → <b>③ TWRP 卡刷 GSI</b>，每一步都有命令和下载链接。</p>
+  <p>2026 现状：想把 Root 藏得最干净，主流已从"官方 Magisk"转向<b>内核级方案（KernelSU / APatch）</b>，本指南三条路线全覆盖，按机型自选。</p>
+  <p style="color:#ffb020">⚠️ 先看：解锁会清空数据！电量 &gt; 60%，重要资料先备份。刷机有风险，变砖自负。</p>
+</header>
+
+<nav class="toc">
+  <b>目录</b>
+  <ol>
+    <li><a href="#p0">第零步：前置准备（解锁、备份、驱动工具）</a></li>
+    <li><a href="#p1">第一部分：安装 Magisk（面具）拿 Root</a></li>
+    <li><a href="#p1b">第一部分-B：内核级 Root（KernelSU / APatch，更能藏）</a></li>
+    <li><a href="#p2">第二部分：隐藏 Root（过银行 / 支付 / 游戏检测）</a></li>
+    <li><a href="#p3">第三部分：常用模块 &amp; 必备软件表</a></li>
+    <li><a href="#p4">第四部分：刷入 TWRP Recovery</a></li>
+    <li><a href="#p5">第五部分：用 TWRP 刷 GSI 通用系统</a></li>
+    <li><a href="#p6">下载链接总表</a></li>
+    <li><a href="#p7">救砖 &amp; FAQ</a></li>
+  </ol>
+</nav>
+
+<!-- ============ P0 ============ -->
+<section class="card" id="p0">
+<h2>第零步：前置准备</h2>
+<h3>0.1 解 Bootloader 锁（必须，否则一切免谈）</h3>
+<ul>
+  <li><b>小米/红米：</b>绑定账号 → 开发者选项 → Mi 解锁状态 → 关机按住音量-进 Fastboot → 电脑跑官方 <code>MiFlashUnlock</code>（需等待 7 天）。</li>
+  <li><b>一加 / Pixel / 摩托罗拉 / Nothing：</b>开发者选项开 <code>OEM 解锁</code> → <code>adb reboot bootloader</code> → <code>fastboot flashing unlock</code>，音量键确认。</li>
+  <li><b>三星：</b>开发者选项开 <code>OEM 解锁</code> → Download 模式长按音量+ 解锁（部分美版/韩版无此选项，直接放弃）。</li>
+  <li><b>华为（麒麟 980 后新机）：</b>官方已关解锁通道，基本无解，跳过本指南。</li>
+</ul>
+<div class="bad">❌ 解锁 = 恢复出厂设置，数据全灭。微信聊天记录、照片先备份到电脑！</div>
+<h3>0.2 电脑装好三件套</h3>
+<table>
+  <tr><th>工具</th><th>干嘛用</th><th>下载</th></tr>
+  <tr><td>Platform-Tools（adb/fastboot）</td><td>传文件、进模式、刷分区</td><td><a href="https://developer.android.com/tools/releases/platform-tools" target="_blank">developer.android.com 官方下载</a></td></tr>
+  <tr><td>手机 USB 驱动</td><td>电脑认出 fastboot/adb 设备</td><td>小米/一加装官方助手；通用可用 Google USB Driver</td></tr>
+  <tr><td>原厂线刷包</td><td>救砖底牌，变砖了靠它回来</td><td>小米 <code>mifirm.net</code> / 一加官网 / 三星 <code>samfw.com</code></td></tr>
+</table>
+<pre><code># 验证电脑能看到手机（每一步卡住先跑这三行）
+adb devices          # 开机+USB调试，应显示 device
+adb reboot bootloader
+fastboot devices     # 应显示一串序列号</code></pre>
+</section>
+
+<!-- ============ P1 ============ -->
+<section class="card" id="p1">
+<h2>第一部分：安装 Magisk（面具）拿 Root</h2>
+<p><span class="tag">原理</span>Magisk 不动 system 分区，只打补丁到 <code>boot</code>（或 <code>init_boot</code>）镜像，OTA 相对友好，模块可随时开关。</p>
+<h3>1.1 下载官方 Magisk</h3>
+<ul>
+  <li><b>Magisk 官方：</b><a href="https://github.com/topjohnwu/Magisk" target="_blank">github.com/topjohnwu/Magisk</a> → Releases 下 <code>Magisk-vXX.apk</code>（直接装到手机上就行，APK 即安装器）。</li>
+  <li>官方文档：<a href="https://topjohnwu.github.io/Magisk/install.html" target="_blank">topjohnwu.github.io/Magisk/install.html</a></li>
+</ul>
+<div class="warn">⚠️ 别用搜索引擎里的"面具官网"山寨站（带下载器/收费的都是假的）。认准上面这个 GitHub 地址。狐狸面具 Kitsune（Magisk Delta）原作者已删库跑路，网上全是第三方镜像包，有投毒风险——<b>新手只用官方版</b>。</div>
+<h3>1.2 方法 A：打补丁 boot（最通用，推荐）</h3>
+<ol>
+  <li>从线刷包里解出本机<b>同版本</b>的 <code>boot.img</code>（Android 13+ 且有 <code>init_boot</code> 分区的机型就取 <code>init_boot.img</code>）。</li>
+  <li>把 img 传到手机，打开 Magisk → <b>安装 → 选择并修补文件</b> → 选中它 → 得到 <code>Download/magisk_patched_xxx.img</code> 传回电脑。</li>
+  <li>手机进 Fastboot，电脑执行：
+<pre><code># 先确认槽位（A/B 机型刷当前槽）
+fastboot getvar current-slot
+# 刷入（boot 机型）
+fastboot flash boot magisk_patched_xxx.img
+# init_boot 机型则：
+fastboot flash init_boot magisk_patched_xxx.img
+fastboot reboot</code></pre></li>
+  <li>开机打开 Magisk 显示版本号 + <code>已安装</code> 即成功；提示"需要额外设置"点确定重启一次。</li>
+</ol>
+<h3>1.3 方法 B：TWRP 直刷（已有第三方 Recovery 时最省事）</h3>
+<p>把 <code>Magisk-vXX.apk</code> 后缀改成 <code>.zip</code>，TWRP 里 Install 选中刷入，重启即可。升级 Magisk 也是同理，或 App 内<b>直接安装</b>。</p>
+<h3>1.4 三星专属</h3>
+<p>Magisk 修补 <code>AP_xxx.tar.md5</code> 包里的 <code>boot.img.lz4</code>（或 <code>init_boot</code>），生成 patched tar，与 BL/CP/CSC 一起用 Odin 刷入（AP 槽选 patched 包）。三星刷完首次开机必须联网、且 Knox 熔断不可逆（支付/保修永久影响），想清楚再动手。</p>
+<div class="ok">✅ 避坑：boot/init_boot 版本必须和当前系统版本一致；A/B 机型不要 cross 刷槽；刷完卡第一屏超过 10 分钟 → 进 Fastboot 刷回原版 img 即复活。</div>
+</section>
+
+<!-- ============ P1B ============ -->
+<section class="card" id="p1b">
+<h2>第一部分-B：内核级 Root（KernelSU / APatch，隐藏能力最强）</h2>
+<p>为什么更能藏：Magisk 在用户态有守护进程和挂载痕迹可查；KernelSU/APatch 把 <code>su</code> 做进<b>内核</b>，默认不对 App 暴露任何痕迹，只有你授权的应用才看得见 Root——这就是"专用隐藏"的本质，不用再跟各种检测斗智斗勇。</p>
+<table>
+  <tr><th>方案</th><th>适合谁</th><th>要求</th><th>下载</th></tr>
+  <tr><td><b>KernelSU Next（最推荐）</b></td><td>GKI 机型（近 3 年新机基本都是），想省心+隐藏拉满</td><td>内核 5.10+ 可直接刷官方 GKI 内核；4.19~5.4 需找带驱动的第三方内核</td><td><a href="https://github.com/KernelSU-Next/KernelSU-Next" target="_blank">KernelSU-Next</a>（Releases 下管理器 APK + 内核）</td></tr>
+  <tr><td><b>SukiSU Ultra</b></td><td>要 KPM 内核模块、susfs 深度隐藏的玩家</td><td>同上，GKI 最省事</td><td><a href="https://github.com/SukiSU-Ultra/SukiSU-Ultra" target="_blank">SukiSU-Ultra</a></td></tr>
+  <tr><td><b>APatch</b></td><td>老内核（3.18+）/ 非 GKI 机型，不想换整个内核</td><td>arm64，需内核开 <code>CONFIG_KALLSYMS</code>；自己设一个高强度 SuperKey</td><td><a href="https://github.com/bmax121/APatch" target="_blank">bmax121/APatch</a>（只认 Releases 的 APK）</td></tr>
+</table>
+<h3>KernelSU 系安装（GKI 机型，5 分钟）</h3>
+<ol>
+  <li>下载对应内核版本（如 <code>android12-5.10</code>）的 <code>Image.gz</code>/boot 镜像，或用管理器自带的刷机方式。</li>
+  <li><code>fastboot flash boot xxx.img</code>（或按发布页说明刷 <code>init_boot</code>），重启装管理器 APK。</li>
+  <li>管理器 → <b>模块</b>装 <code>ZygiskNext</code> 或 <code>ReZygisk</code>（二选一）→ 重启 → 再装 Shamiko / Zygisk Assistant，隐藏配置和第二部分完全一样。</li>
+  <li>终极隐藏再加 <b>SUSFS</b> 模块（<code>susfs4ksu</code>，需内核支持），连挂载痕迹一起抹掉。</li>
+</ol>
+<h3>APatch 安装</h3>
+<ol>
+  <li>安装 APK → 设置一个<b>又长又随机</b>的 SuperKey（这就是你的 Root 密码，丢了/弱了等于裸奔）。</li>
+  <li>App 内<b>修补 boot</b> → 得到 patched 镜像 → <code>fastboot flash boot</code> 刷入 → 重启。</li>
+  <li>管理器里把银行/游戏加进<b>排除列表（Exclude）</b>，再装 ZygiskNext + Shamiko，后面和第二部分一样。</li>
+</ol>
+<div class="warn">⚠️ 选型建议：GKI 新机无脑 KernelSU Next；老机器/冷门机查不到 KSU 内核就 APatch； Magisk 生态模块最多，玩 Xposed 花活多的人可以 Magisk 为主 + 这一节的隐藏模块补强。三星 Knox 机三条路都会熔断，自己掂量。</div>
+</section>
+
+<!-- ============ P2 ============ -->
+<section class="card" id="p2">
+<h2>第二部分：隐藏 Root（银行 / 支付 / 游戏检测全过）</h2>
+<p>现代检测 = 三层：<code>su 文件/包名</code> → <code>Zygisk 注入痕迹</code> → <code>Play Integrity（硬件级）</code>。按下面顺序一套配下来，绝大多数 App 全绿。</p>
+<h3>2.1 第一步：把 Magisk App 自己藏起来</h3>
+<p>Magisk 设置 → <b>隐藏 Magisk 应用</b> → 取个普通名字（如"设置服务"）→ 确定。原理：检测软件会扫包名 <code>com.topjohnwu.magisk</code>，改名即隐身。</p>
+<h3>2.2 第二步：Zygisk + 排除列表（DenyList）</h3>
+<ol>
+  <li>Magisk 设置 → 打开 <code>Zygisk</code> → 重启。</li>
+  <li>设置 → <b>配置排除列表</b> → 勾上银行/支付/游戏/政务 App（把"显示系统应用"打开，连带勾 <code>com.google.android.gms.unstable</code> <b>不要勾</b>，那是完整性检测进程，勾了反而失败）。</li>
+  <li><b>关键：</b><code>遵守排除列表（Enforce DenyList）</code>保持<b>关闭</b>（开了就和 Shamiko 冲突）。</li>
+</ol>
+<h3>2.3 第三步：Shamiko（核心隐藏模块）</h3>
+<ul>
+  <li><b>下载：</b><a href="https://github.com/LSPosed/LSPosed.github.io/releases" target="_blank">github.com/LSPosed/LSPosed.github.io/releases</a>（LSPosed 团队官方发布页，取最新版 zip）。</li>
+  <li>Magisk → 模块 → 从本地安装 → 重启。Shamiko 会读取上面的排除列表自动隐藏，要求就是 2.2 那条：Enforce 保持关闭。</li>
+</ul>
+<h3>2.4 第四步：过 Play Integrity（装 Xposed 模块前先搞定）</h3>
+<table>
+  <tr><th>方案</th><th>效果</th><th>下载</th></tr>
+  <tr><td><b>PlayIntegrityFork（推荐新手）</b></td><td>过 BASIC + DEVICE，可用钱包/门禁/RCS</td><td><a href="https://github.com/osm0sis/PlayIntegrityFork" target="_blank">github.com/osm0sis/PlayIntegrityFork</a>（模块内 Action 点一下自动抓指纹）</td></tr>
+  <tr><td><b>TrickyStore（进阶，最强）</b></td><td>配合未封禁 keybox 可冲 STRONG，银行最稳</td><td><a href="https://github.com/5ec1cff/TrickyStore" target="_blank">github.com/5ec1cff/TrickyStore</a>（keybox 需自备有效文件放 <code>/data/adb/tricky_store/keybox.xml</code>）</td></tr>
+  <tr><td>ZygiskNext（可选替换）</td><td>替代官方 Zygisk 加载方式，过部分 ptrace 检测</td><td><a href="https://github.com/Dr-TSNG/ZygiskNext" target="_blank">github.com/Dr-TSNG/ZygiskNext</a>（装它就要关 Magisk 自带 Zygisk）</td></tr>
+  <tr><td><b>ReZygisk（开源替代）</b></td><td>ZygiskNext 的全开源复刻，KSU/APatch 必备二选一</td><td><a href="https://github.com/PerformanC/ReZygisk" target="_blank">github.com/PerformanC/ReZygisk</a>（XDA 实测对付顽固银行 App 有奇效）</td></tr>
+  <tr><td><b>Zygisk Assistant（专用隐藏）</b></td><td>轻量隐藏 root+Zygisk 痕迹，Magisk/KSU/APatch 通用</td><td><a href="https://github.com/snake-4/Zygisk-Assistant" target="_blank">github.com/snake-4/Zygisk-Assistant</a>（和 Shamiko 二选一或叠加，别和 Enforce DenyList 同开）</td></tr>
+</table>
+<div class="warn">⚠️ PIFork + TrickyStore 二选一即可，别叠着装。TrickyStore 1.1.0 起闭源，按 README 来；keybox 网上公开的基本都被谷歌封了，DEVICE 能过就行，别死磕 STRONG。</div>
+<h3>2.5 第五步：Hide My AppList（防"应用列表"检测）</h3>
+<ul>
+  <li>有些 App 扫你装了 Magisk/MT管理器/冰箱就判 root。装 <b>LSPosed 框架</b>（<a href="https://github.com/LSPosed/LSPosed" target="_blank">LSPosed</a> 存档版 / 活跃继任 <a href="https://github.com/JingMatrix/Vector" target="_blank">Vector（原 LSPosed_mod）</a>），再装模块 <b>Hide My AppList</b>：<a href="https://github.com/Dr-TSNG/Hide-My-Applist" target="_blank">github.com/Dr-TSNG/Hide-My-Applist</a>。</li>
+  <li>用法：新建黑名单模板 → 勾"所有应用对这些 App 不可见" → 作用域只勾需要隐藏的 App → 在 HMA 自带测试里验证全绿。</li>
+</ul>
+<h3>2.6 自查三件套（按顺序测）</h3>
+<ol>
+  <li><b>Root Checker / Momo：</b>确认 su 正常、Momo 无痕迹。</li>
+  <li><b>Play 商店 → 设置 → Play 保护机制认证：</b>显示"已认证设备"。</li>
+  <li><b>银行/游戏实测：</b>还弹 root 警告就回头检查：排除列表漏勾？Enforce 误开了？GMS 被勾了？模块装多了（字体模块最容易露馅，先全关再一个个开）。</li>
+</ol>
+</section>
+
+<!-- ============ P3 ============ -->
+<section class="card" id="p3">
+<h2>第三部分：常用模块 &amp; 必备软件</h2>
+<h3>3.1 Magisk 模块（模块页 → 从本地安装 zip）</h3>
+<table>
+  <tr><th>模块</th><th>一句话</th><th>下载</th></tr>
+  <tr><td>Shamiko</td><td>隐藏 Root 本体</td><td><a href="https://github.com/LSPosed/LSPosed.github.io/releases" target="_blank">Releases</a></td></tr>
+  <tr><td>PlayIntegrityFork</td><td>过 DEVICE 完整性</td><td><a href="https://github.com/osm0sis/PlayIntegrityFork" target="_blank">GitHub</a></td></tr>
+  <tr><td>TrickyStore</td><td>硬件级 attestation 伪装</td><td><a href="https://github.com/5ec1cff/TrickyStore" target="_blank">GitHub</a></td></tr>
+  <tr><td>ZygiskNext</td><td>替代 Zygisk 加载</td><td><a href="https://github.com/Dr-TSNG/ZygiskNext" target="_blank">GitHub</a></td></tr>
+  <tr><td>ReZygisk</td><td>开源 Zygisk 实现，KSU/APatch 搭档</td><td><a href="https://github.com/PerformanC/ReZygisk" target="_blank">GitHub</a></td></tr>
+  <tr><td>Zygisk Assistant</td><td>专用隐藏 root+Zygisk</td><td><a href="https://github.com/snake-4/Zygisk-Assistant" target="_blank">GitHub</a></td></tr>
+  <tr><td>KernelSU Next</td><td>内核级 Root（GKI 机首选）</td><td><a href="https://github.com/KernelSU-Next/KernelSU-Next" target="_blank">GitHub</a></td></tr>
+  <tr><td>SukiSU Ultra</td><td>内核级 Root + KPM/susfs</td><td><a href="https://github.com/SukiSU-Ultra/SukiSU-Ultra" target="_blank">GitHub</a></td></tr>
+  <tr><td>APatch</td><td>内核补丁 Root（老机/非 GKI）</td><td><a href="https://github.com/bmax121/APatch" target="_blank">GitHub</a></td></tr>
+  <tr><td>LSPosed / Vector</td><td>Xposed 框架，玩模块的前提</td><td><a href="https://github.com/LSPosed/LSPosed" target="_blank">LSPosed</a> · <a href="https://github.com/JingMatrix/Vector" target="_blank">Vector</a></td></tr>
+  <tr><td>Hide My AppList</td><td>防应用列表检测（LSPosed 模块）</td><td><a href="https://github.com/Dr-TSNG/Hide-My-Applist" target="_blank">GitHub</a></td></tr>
+  <tr><td>Iconify</td><td>状态栏/系统 UI 美化</td><td>GitHub 搜 <code>Mahmud0808 Iconify</code></td></tr>
+  <tr><td>Universal GMS Doze</td><td>谷歌服务深度省电</td><td>GitHub 搜 <code>gloeyisk universal-gms-doze</code></td></tr>
+  <tr><td>ACC（充电控制）</td><td>限制充电上限护电池</td><td>GitHub 搜 <code>MatteCarra AccA</code> + <code>acc</code> 模块</td></tr>
+  <tr><td>Busybox NDK</td><td>补齐 shell 命令</td><td>Magisk 仓库 / Alt-Repo 搜 busybox</td></tr>
+</table>
+<h3>3.2 手机必备 App（酷安 / Play 商店搜名字）</h3>
+<ul>
+  <li><b>MT管理器</b>——root 文件管理 + APK 逆向，玩机第一工具。</li>
+  <li><b>Swift Backup</b>——换 ROM/GSl 前备份应用+数据。</li>
+  <li><b>App Ops / Storage Isolation</b>——权限管理 + 存储隔离（隔离后记得在 HMA 里藏好它们自己）。</li>
+  <li><b>Treble Info</b>（<a href="https://github.com/phhusson/treble_app" target="_blank">github.com/phhusson/treble_app</a>）——查 Treble/AB/VNDK，刷 GSI 前必看。</li>
+  <li><b>Termux / LADB</b>——手机上跑 shell，无线 adb 调试。</li>
+</ul>
+</section>
+
+<!-- ============ P4 ============ -->
+<section class="card" id="p4">
+<h2>第四部分：刷入 TWRP Recovery</h2>
+<h3>4.1 找对包</h3>
+<ul>
+  <li>官网机型库：<a href="https://twrp.me/Devices/" target="_blank">twrp.me/Devices</a> → 搜 codename → 下 <code>.img</code>。没你机型就去 XDA/酷安找第三方适配，或用 <b>OrangeFox</b>（<a href="https://orangefox.download/" target="_blank">orangefox.download</a>，对 A/B 和加密 Data 支持更好）。</li>
+  <li>包名里 <code>boot</code> 版是一体包（刷到 boot 分区），<code>recovery</code> 版刷 recovery 分区——按发布页说明来，别搞混。</li>
+</ul>
+<h3>4.2 fastboot 刷入</h3>
+<pre><code># 有独立 recovery 分区的老机型
+fastboot flash recovery twrp-xxx.img
+fastboot reboot recovery        # 直接进，别先进系统（部分系统会回写官方recovery）
+
+# A/B 机型（无 recovery 分区，twrp 做进 boot）
+fastboot boot twrp-xxx.img      # 先临时启动，进 TWRP 后再 Advanced → Install Recovery Ramdisk 永久化
+# 或
+fastboot flash boot twrp-xxx.img</code></pre>
+<div class="warn">⚠️ 进 TWRP 问要不要"保持 system 只读"：只是看看选只读；要刷机/Root 选允许修改。Data 解不开密（输密码报错）→ 说明 TWRP 不支持你这版加密，先 Format Data（会清空！）或换 OrangeFox 新版。</div>
+<h3>4.3 进 TWRP 第一件事：备份</h3>
+<p>Backup → 勾 <code>boot</code> + <code>super</code>（或 system）+ <code>persist</code> + <code>efs/modemst</code>（有就勾，丢了=没信号没 IMEI）→ 存到电脑一份。这是你所有折腾的后悔药。</p>
+</section>
+
+<!-- ============ P5 ============ -->
+<section class="card" id="p5">
+<h2>第五部分：用 TWRP 刷 GSI 通用系统</h2>
+<p><span class="tag">GSI</span> Treble 机型通用的半成品系统镜像（一包刷所有 Treble 机），适合体验原生/AOSP。先用 <b>Treble Info</b> 确认：<code>Project Treble: Yes</code>，记下 <code>A/B 还是 A-only</code>、<code>arm64 / VNDK 版本</code>。</p>
+<h3>5.1 下载 GSI（PHH 大神版最稳）</h3>
+<ul>
+  <li><b>PHH Treble：</b><a href="https://github.com/phhusson/treble_experimentations" target="_blank">github.com/phhusson/treble_experimentations</a> → Releases，按 Treble Info 的架构下：
+  <code>system-td-arm64-ab-vanilla.img.xz</code>（无 GMS 原生）或 <code>gapps</code> 版（带谷歌全家桶，小白直接拿 gapps 版）。</li>
+  <li>文件名 <code>ab</code> 对 A/B 机，<code>a64/a-only</code> 对老机，别下错。</li>
+  <li>解压得到 <code>system-xxx.img</code> 传到手机 /sdcard。</li>
+</ul>
+<h3>5.2 关验证（AVB），否则 GSI 开机红字/卡死</h3>
+<pre><code># 电脑 fastboot 下执行（vbmeta 分区刷空验证标记）
+fastboot --disable-verity --disable-verification flash vbmeta vbmeta.img
+# vbmeta.img 从本机线刷包里取；部分机型还要同步刷 vbmeta_system：
+fastboot --disable-verity --disable-verification flash vbmeta_system vbmeta_system.img</code></pre>
+<h3>5.3 TWRP 里开刷（以 A/B 机为例）</h3>
+<ol>
+  <li>Wipe → <b>Format Data</b> 输入 <code>yes</code>（从 MIUI/ColorOS 等转 GSI 必须格 Data）。</li>
+  <li>Install → 右下 <b>Install Image</b> → 选中 <code>system-xxx.img</code> → 分区选 <code>System Image</code> → 滑动刷入。</li>
+  <li>（可选）同方式刷 <code>vbmeta</code> 空验证，或回电脑执行 5.2。</li>
+  <li>Reboot → System，首次开机 5～10 分钟，耐心等。</li>
+</ol>
+<h3>5.4 开机后三件事</h3>
+<ul>
+  <li>没信号/没指纹？PHH 自带 <b>treble settings（phh 设置）</b>→ 按机型开 IMS / 指纹 / 亮度修复；酷安搜机型+GSI 有现成补丁。</li>
+  <li>要 Root？GSI 下直接 TWRP 卡刷 Magisk apk 改的 zip（见 1.3），或 <code>fastboot boot</code> 进 TWRP 刷。</li>
+  <li>想回官方？Fastboot 线刷回原厂包即可（所以 0.2 的线刷包是底牌）。</li>
+</ul>
+<div class="ok">✅ GSI 省流组合：PHH gapps 版 + Magisk（Direct Install）+ 本指南第二部分的隐藏四件套 = 主力机可用的原生系统。</div>
+</section>
+
+<!-- ============ P6 ============ -->
+<section class="card" id="p6">
+<h2>下载链接总表（收藏这一节就够了）</h2>
+<table>
+  <tr><th>软件</th><th>链接</th></tr>
+  <tr><td>Magisk 官方</td><td><a href="https://github.com/topjohnwu/Magisk" target="_blank">github.com/topjohnwu/Magisk</a></td></tr>
+  <tr><td>Magisk 安装文档</td><td><a href="https://topjohnwu.github.io/Magisk/install.html" target="_blank">topjohnwu.github.io/Magisk/install.html</a></td></tr>
+  <tr><td>Shamiko（隐藏）</td><td><a href="https://github.com/LSPosed/LSPosed.github.io/releases" target="_blank">github.com/LSPosed/LSPosed.github.io/releases</a></td></tr>
+  <tr><td>ZygiskNext</td><td><a href="https://github.com/Dr-TSNG/ZygiskNext" target="_blank">github.com/Dr-TSNG/ZygiskNext</a></td></tr>
+  <tr><td>PlayIntegrityFork</td><td><a href="https://github.com/osm0sis/PlayIntegrityFork" target="_blank">github.com/osm0sis/PlayIntegrityFork</a></td></tr>
+  <tr><td>TrickyStore</td><td><a href="https://github.com/5ec1cff/TrickyStore" target="_blank">github.com/5ec1cff/TrickyStore</a></td></tr>
+  <tr><td>LSPosed / Vector 框架</td><td><a href="https://github.com/LSPosed/LSPosed" target="_blank">LSPosed</a> · <a href="https://github.com/JingMatrix/Vector" target="_blank">Vector</a></td></tr>
+  <tr><td>Hide My AppList</td><td><a href="https://github.com/Dr-TSNG/Hide-My-Applist" target="_blank">github.com/Dr-TSNG/Hide-My-Applist</a></td></tr>
+  <tr><td>TWRP 官网机型库</td><td><a href="https://twrp.me/Devices/" target="_blank">twrp.me/Devices</a></td></tr>
+  <tr><td>OrangeFox</td><td><a href="https://orangefox.download/" target="_blank">orangefox.download</a></td></tr>
+  <tr><td>PHH GSI</td><td><a href="https://github.com/phhusson/treble_experimentations" target="_blank">github.com/phhusson/treble_experimentations</a></td></tr>
+  <tr><td>Treble Info（查 GSI 资格）</td><td><a href="https://github.com/phhusson/treble_app" target="_blank">github.com/phhusson/treble_app</a></td></tr>
+  <tr><td>Platform-Tools</td><td><a href="https://developer.android.com/tools/releases/platform-tools" target="_blank">developer.android.com</a></td></tr>
+</table>
+</section>
+
+<!-- ============ P7 ============ -->
+<section class="card" id="p7">
+<h2>救砖 &amp; FAQ</h2>
+<ul>
+  <li><b>刷完 Magisk 卡第一屏：</b>Fastboot 刷回原版 boot/init_boot，90% 复活。</li>
+  <li><b>装模块变砖（无限重启）：</b>① TWRP → Advanced → 文件管理删 <code>/data/adb/modules/问题模块</code>；② 没 TWRP 就 <code>adb wait-for-device shell magisk --remove-modules</code>（ fastboot 进带 adb 的安全模式下执行）。</li>
+  <li><b>真砖（fastboot 都没了）：</b>高通机 9008 线刷——正好用我们这个 <a href="https://github.com/aacai/FlashingDevice" target="_blank">FlashingDevice</a> 项目救。</li>
+  <li><b>银行 App 还是过不了？</b>检查顺序：Magisk 改名了没 → 排除列表勾了没（GMS unstable 别勾）→ Enforce 关了没 → Shamiko/PIFork 版本是不是最新 → 用 HMA 把 MT/冰箱藏了没 → 换 TrickyStore。</li>
+  <li><b>GSI 没信号：</b>phh 设置开 IMS + 确认刷的是对应 AB 类型的包 + 基带（modem）别乱动。</li>
+  <li><b>OTA 升级后 Root 没了：</b>正常。OTA 前 Magisk 里"卸载→还原原厂镜像"，OTA 后重走 1.2（A/B 机可 OTA 到副槽后 Magisk"安装到未使用的槽位"实现无缝）。</li>
+</ul>
+</section>
+
+<footer>FlashingDevice 玩机指南 · 链接均为官方/原作者仓库，转载请注明出处 · 刷机有风险，操作需谨慎</footer>
+</div>
+</body>
+</html>
