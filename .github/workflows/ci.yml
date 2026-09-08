@@ -29,6 +29,7 @@ jobs:
           pip install -r requirements.txt
           pip install ruff pytest
           if [ -f third_party/edl/requirements.txt ]; then pip install -r third_party/edl/requirements.txt; fi
+          pip install -e .
       - name: Forbid brew usage
         # Only match real invocations (line-start or after shell chaining / `run:`),
         # not policy prose like "no `brew install` ..." in docs.

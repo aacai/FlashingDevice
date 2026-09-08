@@ -31,13 +31,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
+          pip install -e .
       - name: Smoke test (no device needed)
         run: |
           python -m pytest -q
           python -c "from flash_device.backend.progress import parse_line, ProgressState; s=ProgressState(); parse_line('Progress: |x| 10.0% Write foo', s); print(s)"
       - name: PyInstaller (onedir)
         run: |
-          pip install -e .
           pyinstaller --noconfirm --onedir --name flash-device --paths src src/flash_device/__main__.py
       - name: Upload artifact
         uses: actions/upload-artifact@v4
