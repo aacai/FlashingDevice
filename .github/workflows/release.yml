@@ -1,0 +1,50 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            asset: linux
+          - os: macos-14
+            asset: macos
+          - os: windows-2022
+            asset: windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+          pip install -e .
+          pyinstaller --noconfirm --onedir --name flash-device --paths src src/flash_device/__main__.py
+      - name: Pack
+        shell: bash
+        run: |
+          cd dist
+          if [ "${{ matrix.asset }}" = "windows" ]; then
+            7z a ../flash-device-${{ matrix.asset }}-${{ github.ref_name }}.zip flash-device
+          else
+            tar -czf ../flash-device-${{ matrix.asset }}-${{ github.ref_name }}.tar.gz flash-device
+          fi
+          cd ..
+          ls -lh flash-device-*
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: flash-device-*.zip,flash-device-*.tar.gz
+          generate_release_notes: true

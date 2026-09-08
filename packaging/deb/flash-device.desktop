@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=FlashingDevice
+Comment=Qualcomm 9008 flashing tool
+Exec=/opt/flash-device/flash-device
+Icon=flash-device
+Type=Application
+Categories=System;

@@ -1,0 +1,123 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Test / coverage
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Virtual envs
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# PyQt / Qt
+*.qmlc
+*.jsc
+qt.conf
+
+# PyInstaller
+*.spec
+!packaging/pyinstaller.spec
+build/
+dist/
+
+# AppImage / deb
+*.AppImage
+*.deb
+*.rpm
+appdir/
+squashfs-root/
+
+# macOS / Windows / Linux
+.DS_Store
+Thumbs.db
+*.dmg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-*
+
+# Project local
+edl_config.json
+flash-device.log
+.flash-device/
+backups/
+backup*/
+logs/
+
+# === Firmware & loaders: NEVER commit proprietary blobs ===
+# Keep this repo source-only. Users provide their own firmware locally.
+*.bin
+*.elf
+*.mbn
+*.img
+*.tgz
+*.tar.gz
+*.7z
+*.zip
+*.kdz
+*.dz
+*.ops
+*.ofp
+*.xml.bak
+firmware/*
+!firmware/README.md
+!firmware/.gitkeep
+lg_v50/
+pipa_*
+*_images_*/
+*.firehose
+Loaders/*.bin
+Loaders/*.elf
+Loaders/*.mbn
+!third_party/
+
+# Submodule internals (keep pointer, ignore build artifacts)
+third_party/edl/build/
+third_party/edl/dist/
+third_party/edl/*.egg-info/
+
+# Release artifacts
+release/
+artifacts/

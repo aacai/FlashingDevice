@@ -1,0 +1,20 @@
+name: "flash-device"
+arch: "amd64"
+platform: "linux"
+version: "v0.1.0"
+section: "utils"
+priority: "optional"
+maintainer: "FlashingDevice contributors"
+description: |-
+  Open-source Qualcomm 9008 / EDL flashing tool with safety guards and backups.
+  Upstream EDL core: bkerler/edl (GPLv3).
+vendor: "FlashingDevice"
+homepage: "https://github.com/aacai/FlashingDevice"
+license: "GPLv3"
+contents:
+  - src: dist/flash-device
+    dst: /opt/flash-device
+  - src: tools/udev/51-edl.rules
+    dst: /etc/udev/rules.d/51-edl.rules
+  - src: packaging/deb/flash-device.desktop
+    dst: /usr/share/applications/flash-device.desktop

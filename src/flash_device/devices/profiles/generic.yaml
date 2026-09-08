@@ -1,0 +1,19 @@
+# Generic 9008 profile template. Copy to a new file per device.
+# Firmware itself is NEVER committed; only this descriptor lives in git.
+name: generic-qcom
+description: "Template: fill in your exact model + tested loader hash"
+storage: ufs  # ufs | emmc | nand
+loader:
+  hint: "prog_firehose_*.elf matching your MSM_ID + PK_HASH"
+  sha256: ""  # optional pin
+firmware:
+  required_files: ["rawprogram*.xml"]
+  optional_files: ["patch*.xml"]
+backup:
+  skip_partitions: ["userdata", "metadata"]
+safety:
+  confirm_qfil_twice: true
+  denylist_extra: []
+notes: >
+  Get the loader via `git submodule update --init --recursive`
+  (third_party/edl/Loaders) or your own dump. Never commit .bin/.elf.
