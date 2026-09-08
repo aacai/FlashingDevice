@@ -30,9 +30,11 @@ jobs:
           pip install ruff pytest
           if [ -f third_party/edl/requirements.txt ]; then pip install -r third_party/edl/requirements.txt; fi
       - name: Forbid brew usage
+        # Only match real invocations (line-start or after shell chaining / `run:`),
+        # not policy prose like "no `brew install` ..." in docs.
         run: |
-          if grep -rin "brew install" --exclude-dir=.git --exclude-dir=third_party . ; then
-            echo "brew install is forbidden in this repo (docs/scripts/CI). Use official installers instead."; exit 1; fi
+          if grep -rinE '(^|[;|&]|run:)[[:space:]]*brew install' --exclude-dir=.git --exclude-dir=third_party --exclude=.github/workflows/ci.yml . ; then
+            echo "'brew install' via Homebrew is forbidden here; use official installers instead."; exit 1; fi
       - name: Forbid symlinks
         run: |
           if find . -path ./.git -prune -o -path ./third_party -prune -o -type l -print | grep . ; then
