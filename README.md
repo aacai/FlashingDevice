@@ -18,6 +18,8 @@ Open-source Qualcomm 9008 / EDL flashing tool with **safety guards, mandatory ba
 - State sync: GUI and CLI share `~/.flash-device/state.json`
   (`python -m flash_device.state --set-loader …`, or HTTP `GET/POST /api/state`
   via `python -m flash_device.server`) — CLI 改完开 GUI 即见最新
+- Settings page (menu 设置→首选项）: state server port/autostart, EDL engine
+  path, kdz-tool path, expected 9008 serial gate, log level
 - No symlinks, no `brew install` in scripts/docs/CI. EDL core via `third_party/edl` submodule (GPLv3).
 
 Upstream: [bkerler/edl](https://github.com/bkerler/edl) (GPLv3). This repo is GPLv3-only accordingly.

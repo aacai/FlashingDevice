@@ -45,8 +45,16 @@ def parse_kdz_header(path: str) -> dict:
     }
 
 
-def find_extractor() -> tuple[str, str]:
-    """找 kdz-tool 二进制。返回 (path, fix_hint)，找不到 path=''。"""
+def find_extractor(explicit: str = "") -> tuple[str, str]:
+    """找 kdz-tool 二进制。返回 (path, fix_hint)，找不到 path=''。
+
+    优先级：显式路径（设置页） > KDZ_TOOL 环境变量 > ~/.flash-device/bin > PATH。
+    """
+    explicit = (explicit or "").strip()
+    if explicit:
+        if os.path.isfile(explicit) and os.access(explicit, os.X_OK):
+            return explicit, ""
+        return "", f"设置页指定的 kdz-tool 不可用：{explicit}（清空则为自动查找）"
     env = os.environ.get("KDZ_TOOL", "").strip()
     if env and os.path.isfile(env) and os.access(env, os.X_OK):
         return env, ""

@@ -119,7 +119,10 @@ class MainWindow(QMainWindow):
         self._rp_cur: str | None = None
         self._last_prog_ts: float | None = None
         self._state_url = ""
-        self._ensure_state_server(startup=True)
+        if self._prefs().get("server_autostart", True):
+            self._ensure_state_server(startup=True)
+        else:
+            logger.info("state server autostart disabled in prefs")
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._poll)
         self.timer.start(1000)
@@ -128,14 +131,54 @@ class MainWindow(QMainWindow):
         self.beat.start(1000)
         self._poll()
 
+    # ---------------- prefs ----------------
+    def _prefs(self) -> dict:
+        from flash_device import settings as S
+
+        raw = {k: self.settings.value("prefs/" + k) for k in S.DEFAULTS}
+        return S.load(raw)
+
+    def _open_prefs(self) -> None:
+        from flash_device.settings_dialog import PrefsDialog
+
+        old = self._prefs()
+        dlg = PrefsDialog(self, old)
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+        new = dlg.values()
+        for k, v in new.items():
+            self.settings.setValue("prefs/" + k, v)
+        self._log(
+            ">>> 首选项已保存："
+            + ", ".join(f"{k}={v}" for k, v in new.items() if new.get(k) != old.get(k))
+            or "（无变化）"
+        )
+        # 端口/自启变了就地生效
+        if new.get("server_port") != old.get("server_port") or new.get(
+            "server_autostart"
+        ) != old.get("server_autostart"):
+            try:
+                from flash_device.server import shutdown
+
+                shutdown(*self._server_addr(old_port=old.get("server_port", 8899)))
+            except Exception:
+                pass
+            if new.get("server_autostart", True):
+                self._ensure_state_server()
+
     # ---------------- state sync ----------------
-    @staticmethod
-    def _server_addr() -> tuple[str, int]:
+    def _server_addr(self, old_port: int | None = None) -> tuple[str, int]:
+        if "FLASH_DEVICE_PORT" in os.environ:
+            try:
+                return "127.0.0.1", int(os.environ["FLASH_DEVICE_PORT"])
+            except ValueError:
+                pass
+        if old_port is not None:
+            return "127.0.0.1", old_port
         try:
-            port = int(os.environ.get("FLASH_DEVICE_PORT", "8899"))
-        except ValueError:
-            port = 8899
-        return "127.0.0.1", port
+            return "127.0.0.1", int(self._prefs().get("server_port", 8899))
+        except (TypeError, ValueError):
+            return "127.0.0.1", 8899
 
     def _ensure_state_server(self, startup: bool = False) -> bool:
         """保证状态同步接口开着：启动时拉起，刷机前再确认一次。"""
@@ -153,6 +196,11 @@ class MainWindow(QMainWindow):
 
     # ---------------- UI ----------------
     def _build_ui(self) -> None:
+        mb = self.menuBar()
+        m_set = mb.addMenu("设置")
+        act_prefs = m_set.addAction("首选项…")
+        act_prefs.setShortcut("Ctrl+,")
+        act_prefs.triggered.connect(self._open_prefs)
         # 整个界面包进滚动区：窗口高度受限不超屏，内容再长也能滚动查看。
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -463,7 +511,7 @@ class MainWindow(QMainWindow):
         )
         if not p:
             return
-        tool, hint = kdzmod.find_extractor()
+        tool, hint = kdzmod.find_extractor(self._prefs().get("kdz_tool") or "")
         if not tool:
             QMessageBox.warning(self, "缺解包器", hint + "\n详见 docs/KDZ.md。")
             return
@@ -598,7 +646,7 @@ class MainWindow(QMainWindow):
 
     # ---------------- run ----------------
     def _edl_cmd(self) -> list[str]:
-        edl_py = pf.resolve_edl_bin()
+        edl_py = pf.resolve_edl_bin(self._prefs().get("edl_bin") or "")
         if edl_py.endswith(".py"):
             return [pf.python_for_edl(), edl_py]
         return [edl_py]
@@ -615,6 +663,19 @@ class MainWindow(QMainWindow):
         if not gl.ok:
             QMessageBox.warning(self, "编程器问题", gl.message)
             return False
+        want = (self._prefs().get("expected_serial") or "").strip().upper()
+        if want:
+            sn = (self._edl_sn or "").strip().upper()
+            if sn and sn != want:
+                QMessageBox.warning(
+                    self,
+                    "设备不对",
+                    f"当前 9008 序列号 {sn}，设置里期望的是 {want}，拒绝开刷（防刷错机）。\n"
+                    "换对设备，或去 设置→首选项 清空期望序列号。",
+                )
+                return False
+            if not sn:
+                self._log(">>> [注意] 设置了期望序列号但读不到当前 SN，本次放行，请目测确认设备。")
         return True
 
     def _run(
@@ -935,7 +996,12 @@ class MainWindow(QMainWindow):
         if r != QMessageBox.StandardButton.Yes:
             return
         # 命令行组装与 HTTP 服务端共用同一份逻辑（backend/qfil.py）， multi-LUN 全量刷入。
-        args, total, err = build_qfil_argv(d, self.loader.text(), self.mem.currentText())
+        args, total, err = build_qfil_argv(
+            d,
+            self.loader.text(),
+            self.mem.currentText(),
+            edl_bin=self._prefs().get("edl_bin") or "",
+        )
         if err:
             QMessageBox.warning(self, "无法启动", err)
             return
@@ -999,10 +1065,21 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="构建 MainWindow 后直接退出（CI/冻包冒烟用，需显示或 QT_QPA_PLATFORM=offscreen）",
     )
-    ap.add_argument("--log-level", default="INFO", help="日志级别：DEBUG/INFO/WARNING")
+    ap.add_argument(
+        "--log-level", default=None, help="日志级别：DEBUG/INFO/WARNING（不给则用设置页的值）"
+    )
     ns = ap.parse_args(argv)
 
-    log_path = setup_logging(ns.log_level)
+    level = (ns.log_level or "").strip().upper() or None
+    if not level:
+        try:
+            from flash_device import settings as S
+
+            qs = QSettings(ORG, APP_NAME)
+            level = S.load({k: qs.value("prefs/" + k) for k in S.DEFAULTS}).get("log_level")
+        except Exception:
+            level = None
+    log_path = setup_logging(level or "INFO")
     checks = run_all_checks()
     logger.info("platform: %s", pf.system_info())
     logger.info("env check:\n%s", format_checks(checks))
@@ -1022,6 +1099,12 @@ def main(argv: list[str] | None = None) -> int:
         app.processEvents()
         # 门控一致性：有 9008 才解锁刷机按钮（CI 无设备时保持锁定）。
         assert w.b_qfil.isEnabled() == w.has_edl
+        # 首选项对话框必须能构建、可接受（冻包缺 Qt 资源会直接炸）。
+        from flash_device.settings_dialog import PrefsDialog
+
+        dlg = PrefsDialog(w, w._prefs())
+        assert dlg.values().get("server_port", 0) >= 1024
+        dlg.accept()
         print(f"self-test-ok buttons_locked={not w.b_qfil.isEnabled()} log={log_path}")
         return 0
     w._log(f">>> 日志文件: {get_log_path()}")
