@@ -5,7 +5,9 @@ def test_scan_and_library(tmp_path, monkeypatch):
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
-    # repo submodule absent here -> scan finds nothing, must not crash
+    # Hermetic: CI checks out the full Loaders submodule (481 files),
+    # so pin the repo dir away instead of assuming it's absent.
+    monkeypatch.setattr(loaders, "repo_loaders_dir", lambda: "")
     assert loaders.scan([]) == []
     # drop a fake loader somewhere,入库, rescan finds it
     srcdir = tmp_path / "fw"
