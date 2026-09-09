@@ -194,15 +194,15 @@ class JobManager:
             env["PYTHONUNBUFFERED"] = "1"
             env.setdefault("PYTHONIOENCODING", "utf-8")
             try:
+                # 二进制模式 + read1：read1 只做一次底层读，有多少返回多少。
+                # 之前用 text=True 的 read(65536) 会攒满 64KB 才返回，edl 总共才
+                # 输出 1-2KB，导致 GUI 全程看不到一行输出、看门狗误判误杀。
                 job._proc = subprocess.Popen(
                     job.args,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     env=env,
                     cwd=job.cwd,
-                    text=True,
-                    bufsize=1,
-                    errors="replace",
                 )
             except Exception as e:  # spawn failure
                 job.log.append(f"[{_ts()}] [!] 启动失败: {e}")
@@ -214,12 +214,12 @@ class JobManager:
             assert job._proc.stdout is not None
             leftover = ""
             while True:
-                chunk = job._proc.stdout.read(65536)
+                chunk = job._proc.stdout.read1(65536)
                 if not chunk:
                     break
                 # EDL rewrites progress with '\r' and only '\n' at milestones:
                 # normalize both into lines so EVERY update is parsed.
-                text = (leftover + chunk).replace("\r", "\n")
+                text = (leftover + chunk.decode("utf-8", errors="replace")).replace("\r", "\n")
                 *lines, leftover = text.split("\n")
                 for ln in lines:
                     job._push_line(ln)

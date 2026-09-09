@@ -6,6 +6,7 @@
   server_port       int   状态接口端口（默认 8899，环境变量 FLASH_DEVICE_PORT 优先）
   edl_bin           str   EDL 引擎显式路径（空=自动：冻包内 bundled → 仓库 submodule → PATH）
   kdz_tool          str   KDZ 解包器显式路径（空=自动：KDZ_TOOL 环境变量 → ~/.flash-device/bin → PATH）
+  kdz_out_dir       str   KDZ 解包输出目录（空=每次弹窗问；填了直接用，不再询问）
   expected_serial   str   期望的 9008 序列号（空=不限制；填了就对不上不让刷，防刷错机）
   log_level         str   DEBUG/INFO/WARNING，下次启动生效
 """
@@ -17,6 +18,7 @@ DEFAULTS: dict = {
     "server_port": 8899,
     "edl_bin": "",
     "kdz_tool": "",
+    "kdz_out_dir": "",
     "expected_serial": "",
     "log_level": "INFO",
 }
@@ -51,6 +53,7 @@ def load(raw: dict | None) -> dict:
         "server_port": port,
         "edl_bin": str(raw.get("edl_bin") or "").strip(),
         "kdz_tool": str(raw.get("kdz_tool") or "").strip(),
+        "kdz_out_dir": str(raw.get("kdz_out_dir") or "").strip(),
         "expected_serial": str(raw.get("expected_serial") or "").strip().upper(),
         "log_level": level if level in LOG_LEVELS else "INFO",
     }

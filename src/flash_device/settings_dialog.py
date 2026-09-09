@@ -57,6 +57,15 @@ class PrefsDialog(QDialog):
         row_kdz.addWidget(b_kdz)
         form.addRow("KDZ 解包器", row_kdz)
 
+        self.kdz_out_dir = QLineEdit(str(current.get("kdz_out_dir") or ""))
+        self.kdz_out_dir.setPlaceholderText("空=每次解包时弹窗询问；填了直接解到这里，不再询问")
+        b_kdz_out = QPushButton("浏览…")
+        b_kdz_out.clicked.connect(lambda: self._pick_dir(self.kdz_out_dir, "选择 KDZ 解包输出目录"))
+        row_kdz_out = QHBoxLayout()
+        row_kdz_out.addWidget(self.kdz_out_dir, 1)
+        row_kdz_out.addWidget(b_kdz_out)
+        form.addRow("KDZ 输出目录", row_kdz_out)
+
         self.serial = QLineEdit(str(current.get("expected_serial") or ""))
         self.serial.setPlaceholderText("空=不限制；填了就对不上序列号不让刷")
         form.addRow("期望序列号", self.serial)
@@ -86,12 +95,18 @@ class PrefsDialog(QDialog):
         if p:
             edit.setText(p)
 
+    def _pick_dir(self, edit: QLineEdit, title: str) -> None:
+        p = QFileDialog.getExistingDirectory(self, title, edit.text().strip() or "~")
+        if p:
+            edit.setText(p)
+
     def _restore_defaults(self) -> None:
         d = dict(S.DEFAULTS)
         self.autostart.setChecked(d["server_autostart"])
         self.port.setValue(d["server_port"])
         self.edl_bin.setText("")
         self.kdz_tool.setText("")
+        self.kdz_out_dir.setText("")
         self.serial.setText("")
         self.level.setCurrentIndex(self.level.findText(d["log_level"]))
 
@@ -105,6 +120,12 @@ class PrefsDialog(QDialog):
             if path and not os.path.exists(path):
                 QMessageBox.warning(self, "路径不存在", f"{label}：\n{path}\n\n清空则为自动。")
                 return
+        out_dir = self.kdz_out_dir.text().strip()
+        if out_dir and not os.path.isdir(out_dir):
+            QMessageBox.warning(
+                self, "目录不存在", f"KDZ 输出目录：\n{out_dir}\n\n清空则每次解包时询问。"
+            )
+            return
         self.accept()
 
     def values(self) -> dict:
@@ -114,6 +135,7 @@ class PrefsDialog(QDialog):
                 "server_port": self.port.value(),
                 "edl_bin": self.edl_bin.text(),
                 "kdz_tool": self.kdz_tool.text(),
+                "kdz_out_dir": self.kdz_out_dir.text(),
                 "expected_serial": self.serial.text(),
                 "log_level": self.level.currentText(),
             }

@@ -40,8 +40,9 @@ def test_dump_roundtrip():
         "server_port": 9999,
         "edl_bin": "",
         "kdz_tool": "",
+        "kdz_out_dir": " /tmp/kdz-out ",
         "expected_serial": "6a738fee",
         "log_level": "WARNING",
     }
-    assert S.dump(vals) == {**vals, "expected_serial": "6A738FEE"}
+    assert S.dump(vals) == {**vals, "expected_serial": "6A738FEE", "kdz_out_dir": "/tmp/kdz-out"}
     assert S.load(S.dump(vals)) == S.dump(vals)

@@ -78,6 +78,37 @@ def default_dest_for(kdz_path: str) -> str:
     return os.path.join(os.path.expanduser("~"), ".flash-device", "firmware", safe)
 
 
+# header-only 输出里每个 chunk 的解出大小，如 "  0. msadp.mbn_417502 (262144 bytes, sparse: false)"
+_LISTING_SIZE_RE = re.compile(r"^\s*\d+\.\s+\S+ \((\d+) bytes, sparse:", re.MULTILINE)
+# part 名行（2 空格缩进、非编号），数量 == 解包产出的分区镜像文件数，且顺序分块写入
+_LISTING_PART_RE = re.compile(r"^  ([A-Za-z]\S*)\s*$", re.MULTILINE)
+
+
+def probe_extract_plan(kdz_path: str, tool: str) -> tuple[int, int]:
+    """跑一次 header-only 解析（不写盘、--no-verify 秒回），返回 (分区文件数, 估算总字节)。
+
+    kdz-tool 的 stdout 是全缓冲：接到管道时所有进度文本攒到进程退出才 flush，
+    GUI 没法靠 stdout 做实时进度。于是先预估分区数/总字节，解包时轮询输出目录
+    的文件数与已写入字节数来算百分比。解析失败返回 (0, 0)，调用方退化为只显示
+    已写入 MB 数。
+    """
+    import subprocess
+
+    try:
+        r = subprocess.run(
+            [tool, "extract", kdz_path, "--no-verify"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return 0, 0
+    txt = r.stdout + r.stderr
+    n_parts = len(_LISTING_PART_RE.findall(txt))
+    total = sum(int(n) for n in _LISTING_SIZE_RE.findall(txt))
+    return n_parts, total
+
+
 def gen_rawprograms(extracted_dir: str) -> list[str]:
     """metadata.json → rawprogram{L}.xml（kdz_to_rawprogram 逻辑，已审查，逐字移植）。
 
