@@ -766,8 +766,11 @@ class MainWindow(QMainWindow):
         self._update_buttons()
         if edl:
             b, p, vid, pid, nm = edl[0]
-            sn = get_edl_serial()
-            self._edl_sn = sn
+            # 任务进行中绝不碰 USB：macOS 上 pyusb 读序列号会跟 edl 抢设备，
+            # 直接导致 edl 报 USBError(13) Access denied / 会话卡死。
+            if not (self.worker and self.worker.isRunning()):
+                self._edl_sn = get_edl_serial()
+            sn = self._edl_sn
             extra = f"    SN:{sn}" if sn else ""
             self.detail.setText(f"{vid:04x}:{pid:04x}    Bus {b}  Port {p}    {nm}{extra}")
             health, hdetail = self._edl_health()
@@ -883,6 +886,11 @@ class MainWindow(QMainWindow):
     ) -> None:
         logger.info("run: %s (cwd=%s)", " ".join(args), cwd)
         self._ensure_state_server()
+        # 等在途的 probe_9008 收尾（它 claim 接口最长约 3 秒），
+        # 否则 edl 一启动就撞上 Access denied。
+        t0 = time.monotonic()
+        while getattr(self, "_probe_busy", False) and time.monotonic() - t0 < 4.0:
+            time.sleep(0.1)
         self._log("$ " + " ".join(args))
         self.bar_total.setValue(0)
         self.bar_file.setValue(0)
@@ -1021,7 +1029,18 @@ class MainWindow(QMainWindow):
                 job_log = " ".join(list(self.worker.job.log))
         except Exception:
             job_log = ""
-        if "Sahara error state" in job_log or "Mode detected: error" in job_log:
+        if "Access denied" in job_log or "USBError(13" in job_log:
+            msg = (
+                "USB 打不开（Access denied）：设备被别的程序占着、正在重新枚举、"
+                "或 macOS 没放行配件。\n\n"
+                "依次检查：① 是否还有别的 edl/刷机工具在跑；"
+                "② 屏幕上有没有 macOS「允许连接配件」弹窗没点；"
+                "③ 拔线等 5 秒重插（系统设置→隐私与安全性→允许配件连接 可设为始终允许）。"
+            )
+            self._log(">>> [提示] " + msg.replace("\n", " "))
+            pf.notify("USB 被拒", "Access denied：检查占用/配件权限后重试")
+            QMessageBox.warning(self, "USB 打不开", msg)
+        elif "Sahara error state" in job_log or "Mode detected: error" in job_log:
             msg = (
                 "手机的 9008 处于 Sahara error 状态（上次会话被打断所致），EDL 拒绝新会话。\n\n"
                 "拔线等 5 秒 → 手机彻底关机 → 重新进 9008 → 插线再操作。"
@@ -1295,17 +1314,28 @@ class MainWindow(QMainWindow):
         self._run(args, total_files=total, status_text=summary)
 
     def _write_image(self, p: str, f: str) -> None:
-        """单分区写入的公共尾部：边界保护 → 备份确认 → 危险确认 → 执行。"""
+        """单分区写入的公共尾部：边界保护 → 备份确认 → AVB 提醒+危险确认 → 执行。"""
         g = guards.validate_single_write(p, f)
         if not g.ok:
             QMessageBox.warning(self, "被边界保护拦截", g.message)
             return
         if not self._confirm_backup_first(f"写入 {p}"):
             return
+        confirm_text = f"将把\n{f}\n写入分区 {p}\n\n确定？"
+        if guards.needs_avb_warning(p):
+            # boot/vbmeta 类分区：能连上 adb 就实测验证状态，连不上按最严提醒。
+            try:
+                from flash_device.utils.adb import read_avb_state
+
+                avb = read_avb_state()
+            except Exception:
+                avb = {}
+            confirm_text += "\n\n" + guards.avb_warning_text(p, avb)
+            self._log(f">>> AVB 实测：{avb or '查不到（按最严提醒）'}")
         r = QMessageBox.warning(
             self,
-            "确认",
-            f"将把\n{f}\n写入分区 {p}\n\n确定？",
+            "确认" + ("（含 AVB 提醒）" if guards.needs_avb_warning(p) else ""),
+            confirm_text,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
