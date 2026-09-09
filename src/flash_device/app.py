@@ -274,8 +274,11 @@ class MainWindow(QMainWindow):
         self.mem.addItems(["ufs", "emmc", "nand", "spinor"])
         self.mem.setMinimumWidth(120)
         self.mem.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
-        right.addWidget(self.mem)
-        top.addLayout(right)
+        top.addWidget(self.mem)
+        self.b_refresh = QPushButton("刷新")
+        self.b_refresh.setToolTip("立即重新检测 USB 并重探 9008 是否真的活着")
+        self.b_refresh.clicked.connect(self._manual_refresh)
+        top.addWidget(self.b_refresh)
         gl.addLayout(top)
         self.hint = QLabel("—")
         self.hint.setStyleSheet("color:#8b949e; font-size:12px; padding-top:4px;")
@@ -743,6 +746,17 @@ class MainWindow(QMainWindow):
             self._probe_busy = False
 
         threading.Thread(target=go, daemon=True).start()
+
+    def _manual_refresh(self) -> None:
+        """刷新按钮：清掉上轮探测缓存，立即重查一遍（拔插后点它，不用干等）。"""
+        self.seen_9008 = False
+        self._probe_ok = None
+        self._probe_detail = ""
+        self._probe_fails = 0
+        self._probe_next = 0.0
+        self._probe_logged_silent = False
+        self._log(">>> 手动刷新：重新检测 USB…")
+        self._poll()
 
     def _poll(self) -> None:
         devices = scan_devices()

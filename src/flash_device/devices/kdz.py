@@ -100,6 +100,7 @@ def probe_extract_plan(kdz_path: str, tool: str) -> tuple[int, int]:
             capture_output=True,
             text=True,
             timeout=120,
+            check=False,
         )
     except (OSError, ValueError, subprocess.SubprocessError):
         return 0, 0

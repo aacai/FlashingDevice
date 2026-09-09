@@ -155,6 +155,14 @@ def probe_9008(sniff_ms: int = 800, nop_ms: int = 2000) -> tuple[bool, str]:
         try:
             usb.util.claim_interface(dev, 0)
         except Exception as e:
+            # 认领失败先复查设备还在不在：线松/正在重枚举时会拿到半残句柄，
+            # 报 busy 会误导用户去关别的程序，其实是线的问题。
+            try:
+                gone = usb.core.find(idVendor=0x05C6, idProduct=0x9008) is None
+            except Exception:
+                gone = False
+            if gone:
+                return False, "no-device"
             msg = str(e).lower()
             if "busy" in msg or "access" in msg or "denied" in msg:
                 return False, "busy"
