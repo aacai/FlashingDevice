@@ -62,3 +62,20 @@ def test_server_state_api(tmp_path, monkeypatch):
         assert code == 404
     finally:
         srv.shutdown()
+
+
+def test_ensure_started_idempotent(tmp_path, monkeypatch):
+    from flash_device import server as srvmod
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    ok1, url1 = srvmod.ensure_started("127.0.0.1", 0)
+    assert ok1 and url1.startswith("http://127.0.0.1:")
+    port = int(url1.rsplit(":", 1)[1])
+    try:
+        # 同一进程再调：复用，不另起
+        ok2, url2 = srvmod.ensure_started("127.0.0.1", port)
+        assert ok2 and url2 == url1
+        code, body = _get(url1 + "/api/state")
+        assert code == 200 and "loader" in body
+    finally:
+        srvmod.shutdown("127.0.0.1", port)

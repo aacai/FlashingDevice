@@ -91,6 +91,62 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"error": "not found"}, 404)
 
 
+def _looks_like_ours(host: str, port: int) -> bool:
+    """端口被占时探一下：在跑的是否就是我们的状态服务（是就直接复用）。"""
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://{host}:{port}/api/state", timeout=2) as r:
+            body = json.loads(r.read() or b"{}")
+        return isinstance(body, dict) and "loader" in body and "memory" in body
+    except Exception:
+        return False
+
+
+_started: dict[tuple[str, int], object] = {}
+
+
+def ensure_started(host: str = "127.0.0.1", port: int = 8899):
+    """幂等启动状态服务（daemon 线程）。返回 (ok, url_or_reason)。
+
+    - 已在本进程起过 → 直接复用；
+    - 端口上已是我们的服务（独立起的）→ 复用；
+    - 端口被陌生进程占用 → (False, 原因)，调用方只记录不硬拦刷机。
+    """
+    import threading
+
+    key = (host, port)
+    if key in _started:
+        return True, f"http://{host}:{port}"
+    try:
+        srv = ThreadingHTTPServer((host, port), Handler)
+    except OSError:
+        if _looks_like_ours(host, port):
+            _started[key] = None
+            logger.info("state server already running at http://%s:%s, reuse", host, port)
+            return True, f"http://{host}:{port}"
+        reason = f"端口 {port} 被其他程序占用，状态同步接口不可用"
+        logger.warning(reason)
+        return False, reason
+    if port == 0:
+        port = srv.server_address[1]
+        key = (host, port)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    _started[key] = srv
+    logger.info("state server started at http://%s:%s", host, port)
+    return True, f"http://{host}:{port}"
+
+
+def shutdown(host: str = "127.0.0.1", port: int = 8899) -> None:
+    """停掉本进程内 ensure_started 拉起的服务（独立进程起的不碰）。"""
+    srv = _started.pop((host, port), None)
+    if srv is not None:
+        try:
+            srv.shutdown()
+        except Exception:
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 

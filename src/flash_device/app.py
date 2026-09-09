@@ -118,6 +118,8 @@ class MainWindow(QMainWindow):
         self._rp_seen: list[str] = []
         self._rp_cur: str | None = None
         self._last_prog_ts: float | None = None
+        self._state_url = ""
+        self._ensure_state_server(startup=True)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._poll)
         self.timer.start(1000)
@@ -125,6 +127,29 @@ class MainWindow(QMainWindow):
         self.beat.timeout.connect(self._heartbeat)
         self.beat.start(1000)
         self._poll()
+
+    # ---------------- state sync ----------------
+    @staticmethod
+    def _server_addr() -> tuple[str, int]:
+        try:
+            port = int(os.environ.get("FLASH_DEVICE_PORT", "8899"))
+        except ValueError:
+            port = 8899
+        return "127.0.0.1", port
+
+    def _ensure_state_server(self, startup: bool = False) -> bool:
+        """保证状态同步接口开着：启动时拉起，刷机前再确认一次。"""
+        from flash_device.server import ensure_started
+
+        host, port = self._server_addr()
+        ok, url_or_reason = ensure_started(host, port)
+        if ok:
+            self._state_url = url_or_reason
+            self._log(f">>> 状态同步接口：{url_or_reason}" + ("（随 GUI 启动）" if startup else ""))
+        else:
+            self._log(f">>> [注意] {url_or_reason}，本次刷机继续但 CLI 看不到实时同步")
+            logger.warning("state server unavailable: %s", url_or_reason)
+        return ok
 
     # ---------------- UI ----------------
     def _build_ui(self) -> None:
@@ -601,6 +626,7 @@ class MainWindow(QMainWindow):
         on_done=None,
     ) -> None:
         logger.info("run: %s (cwd=%s)", " ".join(args), cwd)
+        self._ensure_state_server()
         self._log("$ " + " ".join(args))
         self.bar_total.setValue(0)
         self.bar_file.setValue(0)
@@ -717,6 +743,12 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self._save()
+        try:
+            from flash_device.server import shutdown
+
+            shutdown(*self._server_addr())
+        except Exception:
+            pass
         super().closeEvent(event)
 
     def _open_log_dir(self) -> None:
