@@ -305,6 +305,27 @@ class MainWindow(QMainWindow):
         self.loader.setText(self.settings.value("loader", ""))
         self.fwdir.setText(self.settings.value("fwdir", ""))
         mem = self.settings.value("mem", "ufs")
+        # 共享状态（CLI/HTTP 写过）非空即覆盖本地：CLI 操作后开 GUI 即见最新。
+        try:
+            from flash_device import state as shared
+
+            st = shared.load()
+            synced = [k for k in ("loader", "fwdir", "memory") if st.get(k)]
+            if synced:
+                if st.get("loader"):
+                    self.loader.setText(st["loader"])
+                if st.get("fwdir"):
+                    self.fwdir.setText(st["fwdir"])
+                if st.get("memory"):
+                    mem = st["memory"]
+                logger.info(
+                    "synced shared state (%s) updated_at=%s by %s",
+                    ",".join(synced),
+                    st.get("updated_at"),
+                    st.get("updated_by"),
+                )
+        except Exception as e:
+            logger.warning("shared state unreadable: %s", e)
         idx = self.mem.findText(mem)
         if idx >= 0:
             self.mem.setCurrentIndex(idx)
@@ -315,6 +336,19 @@ class MainWindow(QMainWindow):
         self.settings.setValue("loader", self.loader.text())
         self.settings.setValue("fwdir", self.fwdir.text())
         self.settings.setValue("mem", self.mem.currentText())
+        try:
+            from flash_device import state as shared
+
+            shared.save(
+                {
+                    "loader": self.loader.text(),
+                    "fwdir": self.fwdir.text(),
+                    "memory": self.mem.currentText(),
+                },
+                by="gui",
+            )
+        except Exception as e:
+            logger.warning("shared state unwritable: %s", e)
 
     # ---------------- pickers ----------------
     def _pick_loader(self) -> None:
@@ -663,6 +697,17 @@ class MainWindow(QMainWindow):
         logger.info("done: exit=%s", code)
         self._log(f"=== 结束：{result} ===")
         pf.notify("操作完成", result)
+        try:
+            from flash_device import state as shared
+
+            op = ""
+            try:
+                op = (self.op_label.text() or "")[:160]
+            except Exception:
+                pass
+            shared.save({"last_job": {"op": op, "result": result, "exit_code": code}}, by="gui")
+        except Exception as e:
+            logger.warning("shared last_job unwritable: %s", e)
         post, self._post_job = getattr(self, "_post_job", None), None
         if callable(post):
             try:

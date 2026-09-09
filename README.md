@@ -15,6 +15,9 @@ Open-source Qualcomm 9008 / EDL flashing tool with **safety guards, mandatory ba
 - Cross-platform: Linux (Tier1), macOS (Tier1), Windows (Tier2 experimental, UsbDk/Zadig needed)
 - File logging: every run writes `~/.flash-device/logs/flash-device-<ts>.log`, openable from the GUI
 - Env preflight: `flash-device --check-env` / GUI “环境自检” tells you exactly what to install
+- State sync: GUI and CLI share `~/.flash-device/state.json`
+  (`python -m flash_device.state --set-loader …`, or HTTP `GET/POST /api/state`
+  via `python -m flash_device.server`) — CLI 改完开 GUI 即见最新
 - No symlinks, no `brew install` in scripts/docs/CI. EDL core via `third_party/edl` submodule (GPLv3).
 
 Upstream: [bkerler/edl](https://github.com/bkerler/edl) (GPLv3). This repo is GPLv3-only accordingly.
