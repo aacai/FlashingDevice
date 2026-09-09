@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
     QFileDialog,
+    QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QInputDialog,
@@ -211,79 +212,78 @@ class MainWindow(QMainWindow):
         v.setContentsMargins(14, 12, 14, 12)
         v.setSpacing(10)
 
-        gb = QGroupBox("设备状态 · 9008")
+        gb = QGroupBox("设备")
         gl = QVBoxLayout(gb)
         top = QHBoxLayout()
+        top.setSpacing(12)
         self.dot = QLabel("●")
-        self.dot.setFont(QFont("", 26))
+        self.dot.setFont(QFont("", 30))
+        top.addWidget(self.dot, 0, Qt.AlignmentFlag.AlignTop)
+        mid = QVBoxLayout()
+        mid.setSpacing(2)
         self.status = QLabel("正在检测…")
-        self.status.setFont(QFont("", 15, QFont.Weight.Bold))
-        top.addWidget(self.dot)
-        top.addWidget(self.status, 1)
-        mem_label = QLabel("存储类型:")
-        mem_label.setStyleSheet("color:#9fb4d8;")
-        top.addWidget(mem_label)
+        self.status.setFont(QFont("", 16, QFont.Weight.Bold))
+        mid.addWidget(self.status)
+        self.detail = QLabel("—")
+        self.detail.setStyleSheet("color:#8b949e; font-family:Menlo,monospace; font-size:12px;")
+        mid.addWidget(self.detail)
+        top.addLayout(mid, 1)
+        right = QVBoxLayout()
+        right.setSpacing(4)
+        mem_label = QLabel("存储类型")
+        mem_label.setStyleSheet("color:#9fb4d8; font-size:12px;")
+        mem_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        right.addWidget(mem_label)
         self.mem = QComboBox()
         self.mem.addItems(["ufs", "emmc", "nand", "spinor"])
         self.mem.setMinimumWidth(120)
         self.mem.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
-        top.addWidget(self.mem)
+        right.addWidget(self.mem)
+        top.addLayout(right)
         gl.addLayout(top)
-        self.detail = QLabel("—")
-        self.detail.setStyleSheet("color:#8b8b9a; font-family:Menlo,monospace; font-size:12px;")
-        gl.addWidget(self.detail)
         self.hint = QLabel("—")
-        self.hint.setStyleSheet("color:#9a9aac; font-size:12px; padding-top:2px;")
+        self.hint.setStyleSheet("color:#8b949e; font-size:12px; padding-top:4px;")
         self.hint.setWordWrap(True)
         gl.addWidget(self.hint)
         v.addWidget(gb)
 
-        gb2 = QGroupBox("编程器")
-        g2 = QHBoxLayout(gb2)
-        g2.setContentsMargins(12, 8, 12, 8)
-        g2.setSpacing(8)
-        loader_label = QLabel("Firehose 编程器:")
-        loader_label.setStyleSheet("color:#9fb4d8; font-weight:700;")
+        gb_pkg = QGroupBox("刷机包")
+        gpkg = QVBoxLayout(gb_pkg)
+        form = QFormLayout()
+        form.setSpacing(8)
+        row_loader = QHBoxLayout()
+        row_loader.setSpacing(8)
         self.loader = QLineEdit()
         self.loader.setPlaceholderText("prog_firehose_*.elf / *.mbn（点“扫描本机”自动找）")
         b2 = QPushButton("浏览…")
         b2.clicked.connect(self._pick_loader)
         bscan = QPushButton("扫描本机…")
         bscan.clicked.connect(self._scan_loaders)
-        g2.addWidget(loader_label)
-        g2.addWidget(self.loader, 1)
-        g2.addWidget(b2)
-        g2.addWidget(bscan)
-        v.addWidget(gb2)
-
-        gb3 = QGroupBox("整包刷入用的固件目录")
-        g3 = QVBoxLayout(gb3)
-        purpose = QLabel(
-            "⚠“整包刷入(QFIL)”就刷这个目录：里面要有 rawprogram*.xml + 镜像文件；"
-            "手头只有 .kdz 就点「选择 KDZ…」，会自动解包生成。"
-        )
-        purpose.setStyleSheet("color:#9fb4d8; font-size:12px;")
-        purpose.setWordWrap(True)
-        g3.addWidget(purpose)
-        r = QHBoxLayout()
+        row_loader.addWidget(self.loader, 1)
+        row_loader.addWidget(b2)
+        row_loader.addWidget(bscan)
+        form.addRow("Firehose 编程器:", row_loader)
+        row_fw = QHBoxLayout()
+        row_fw.setSpacing(8)
         self.fwdir = QLineEdit()
-        self.fwdir.setPlaceholderText("包含 rawprogram*.xml / patch*.xml / *.img 的目录")
+        self.fwdir.setPlaceholderText("rawprogram*.xml + 镜像所在目录；只有 .kdz 就点右边的选择 KDZ")
         b3 = QPushButton("浏览…")
         b3.clicked.connect(self._pick_fw)
         bkdz = QPushButton("选择 KDZ…")
         bkdz.clicked.connect(self._pick_kdz)
-        r.addWidget(self.fwdir, 1)
-        r.addWidget(b3)
-        r.addWidget(bkdz)
-        g3.addLayout(r)
+        row_fw.addWidget(self.fwdir, 1)
+        row_fw.addWidget(b3)
+        row_fw.addWidget(bkdz)
+        form.addRow("固件目录:", row_fw)
+        gpkg.addLayout(form)
         self.fwinfos = QLabel("—")
-        self.fwinfos.setStyleSheet("color:#8b8b9a; font-size:12px;")
+        self.fwinfos.setStyleSheet("color:#8b949e; font-size:12px;")
         self.fwinfos.setWordWrap(True)
         self.fwinfos.setTextInteractionFlags(
             self.fwinfos.textInteractionFlags() | Qt.TextInteractionFlag.TextSelectableByMouse
         )
-        g3.addWidget(self.fwinfos)
-        v.addWidget(gb3)
+        gpkg.addWidget(self.fwinfos)
+        v.addWidget(gb_pkg)
 
         gb4 = QGroupBox("操作（9008 连接后解锁）")
         g4 = QVBoxLayout(gb4)
@@ -559,7 +559,7 @@ class MainWindow(QMainWindow):
 
     def _scan_fw(self) -> None:
         d = self.fwdir.text().strip()
-        raws, pats, msg = guards.scan_firmware_dir(d)
+        raws, pats, _msg = guards.scan_firmware_dir(d)
         self.raws, self.pats = raws, pats
         extra = ""
         if raws and not self.loader.text().strip():
@@ -569,29 +569,16 @@ class MainWindow(QMainWindow):
             if cands:
                 self.loader.setText(cands[0])
                 extra = f"\n（已自动选中编程器: {os.path.basename(cands[0])}）"
-        # 把「选到的东西」详细列在界面上
-        info = [
-            f"目录: {d}",
-            f"编程器: {self.loader.text().strip() or '（未选，需先选 Firehose）'}",
-        ]
-        if raws:
-            info.append(f"分区表 rawprogram（{len(raws)} 个，整包刷入将全部覆盖）:")
-            for x in raws:
-                info.append(f"  • {os.path.basename(x)}")
-        else:
-            info.append(msg)
-        if pats:
-            info.append(f"补丁 patch（{len(pats)} 个）:")
-            for x in pats:
-                info.append(f"  • {os.path.basename(x)}")
+        # 目录状态只显示一行结论（详情去日志里看），界面不堆文字。
         rep = validate_fwdir(d, self.loader.text().strip(), self.mem.currentText())
         mark = {"ok": "✅", "warn": "⚠️", "error": "⛔"}[rep.level]
-        info.append(f"{mark} 包校验[{rep.level}]：{rep.summary()}")
-        for w in rep.warnings[:4]:
-            info.append(f"  ⚠ {w}")
-        for e in rep.errors[:4]:
-            info.append(f"  ⛔ {e}")
-        self.fwinfos.setText("\n".join(info) + extra)
+        line = f"{mark} {rep.summary()}"
+        notes = (rep.errors + rep.warnings)[:2]
+        if notes:
+            line += "；" + "；".join(notes)[:160]
+        if extra:
+            line += extra
+        self.fwinfos.setText(line)
 
     # ---------------- device poll ----------------
     def _set(self, color: str, text: str) -> None:
