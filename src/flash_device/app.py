@@ -181,8 +181,11 @@ class MainWindow(QMainWindow):
         self.fwdir.setPlaceholderText("包含 rawprogram*.xml / patch*.xml / *.img 的目录")
         b3 = QPushButton("浏览…")
         b3.clicked.connect(self._pick_fw)
+        bkdz = QPushButton("选择 KDZ…")
+        bkdz.clicked.connect(self._pick_kdz)
         r.addWidget(self.fwdir, 1)
         r.addWidget(b3)
+        r.addWidget(bkdz)
         g3.addLayout(r)
         self.fwinfos = QLabel("—")
         self.fwinfos.setStyleSheet("color:#8b8b9a; font-size:12px;")
@@ -226,8 +229,6 @@ class MainWindow(QMainWindow):
         self.b_reset.clicked.connect(self._do_reset)
         self.b_stop.clicked.connect(self._stop)
         v.addWidget(gb4)
-
-
 
         gb5 = QGroupBox("日志与进度（每次运行都写入文件，方便事后复盘）")
         g5 = QVBoxLayout(gb5)
@@ -301,8 +302,6 @@ class MainWindow(QMainWindow):
         self.settings.setValue("loader", self.loader.text())
         self.settings.setValue("fwdir", self.fwdir.text())
         self.settings.setValue("mem", self.mem.currentText())
-
-
 
     # ---------------- pickers ----------------
     def _pick_loader(self) -> None:
@@ -379,6 +378,64 @@ class MainWindow(QMainWindow):
             self.fwdir.setText(p)
             self._scan_fw()
             self._save()
+
+    def _pick_kdz(self) -> None:
+        """选 .kdz → 解包 → 生成 rawprogram → 自动填入固件目录并校验。"""
+        from flash_device.devices import kdz as kdzmod
+
+        p, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择 LG KDZ 固件包",
+            os.path.expanduser("~"),
+            "LG KDZ (*.kdz);;所有文件 (*)",
+        )
+        if not p:
+            return
+        tool, hint = kdzmod.find_extractor()
+        if not tool:
+            QMessageBox.warning(self, "缺解包器", hint + "\n详见 docs/KDZ.md。")
+            return
+        info = kdzmod.parse_kdz_header(p)
+        if not info.get("ok"):
+            QMessageBox.warning(self, "不是 KDZ", info.get("error", ""))
+            return
+        dest = QFileDialog.getExistingDirectory(
+            self, "选择解包输出目录（将新建子目录）", os.path.dirname(kdzmod.default_dest_for(p))
+        )
+        out = (
+            os.path.join(dest, os.path.basename(kdzmod.default_dest_for(p)))
+            if dest
+            else kdzmod.default_dest_for(p)
+        )
+        r = QMessageBox.question(
+            self,
+            "解包 KDZ",
+            f"机型：{info['model']}（{info['carrier']} {info['region']} v{info['version']}）\n"
+            f"输出到：{out}\n\n"
+            "7GB 包解包约需几分钟，开始？",
+        )
+        if r != QMessageBox.StandardButton.Yes:
+            return
+        os.makedirs(out, exist_ok=True)
+        summary = f"解包 KDZ：{os.path.basename(p)} → {out}"
+
+        def after(code: int) -> None:
+            if code != 0:
+                QMessageBox.warning(self, "解包失败", f"kdz-tool 退出码 {code}，看日志找原因。")
+                return
+            try:
+                made = kdzmod.gen_rawprograms(out)
+            except (OSError, ValueError) as e:
+                QMessageBox.warning(self, "生成分区表失败", str(e))
+                return
+            self.fwdir.setText(out)
+            self._scan_fw()
+            self._save()
+            self._log(
+                f">>> 解包完成，生成 {len(made)} 个 rawprogram，已填入固件目录并校验（见上）。"
+            )
+
+        self._run([tool, "extract", p, "-d", out], status_text=summary, on_done=after)
 
     def _scan_fw(self) -> None:
         d = self.fwdir.text().strip()
@@ -494,6 +551,7 @@ class MainWindow(QMainWindow):
         cwd: str | None = None,
         total_files: int = 0,
         status_text: str = "",
+        on_done=None,
     ) -> None:
         logger.info("run: %s (cwd=%s)", " ".join(args), cwd)
         self._log("$ " + " ".join(args))
@@ -503,6 +561,7 @@ class MainWindow(QMainWindow):
         self._rp_cur = None
         self._update_rp_chips()
         self.op_label.setText(status_text or "")
+        self._post_job = on_done
         self.worker = JobWorker(status_text or "刷机任务", args, total_files=total_files, cwd=cwd)
         self.worker.line.connect(self._log)
         self.worker.progress.connect(self._on_progress)
@@ -618,7 +677,12 @@ class MainWindow(QMainWindow):
         logger.info("done: exit=%s", code)
         self._log(f"=== 结束：{result} ===")
         pf.notify("操作完成", result)
-
+        post, self._post_job = getattr(self, "_post_job", None), None
+        if callable(post):
+            try:
+                post(code)
+            except Exception as e:
+                self._log(f"[!] 后续步骤失败：{e}")
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self._save()
@@ -845,7 +909,6 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.No,
         )
         if r == QMessageBox.StandardButton.Yes:
-
             self._run(
                 self._edl_cmd()
                 + ["w", p, f, f"--loader={self.loader.text().strip()}"]
