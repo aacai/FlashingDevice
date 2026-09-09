@@ -35,10 +35,10 @@ Firehose loader 是高通/OEM 签名的**专有二进制**（如 `prog_ufs_fireh
 ## 4. 本机实例（作者环境）
 
 ```text
-edl-tools/edl/Loaders/LG/000a50e100310000_e746e34f737403f4_fhprg_lg_g8x.bin
-└─ bkerler/Loaders 子模块（注意 edl-loaders 是指向它的软链接，别被绕晕）
+FlashingDevice/firmware/loaders/prog_ufs_firehose_sm8150_ddr.elf   ← LG V50 出厂通用名
+└─ 原名 000a50e100310000_e746e34f737403f4_fhprg_lg_g8x.bin（bkerler 仓规范），sha 相同
+~/.flash-device/loaders/                                            ← 我的库（GUI 一键入库）
+~/.flash-device/loaders-archive/Loaders/                            ← 旧子模块全量归档（备用）
 firmware/pipa_images_*/images/prog_ufs_firehose_sm8250_ddr_5.elf
 └─ 小米包自带，刷 pipa 就用它
-~/.flash-device/loaders/
-└─ 我的库，GUI 一键入库
 ```

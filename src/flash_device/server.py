@@ -82,7 +82,7 @@ const $=id=>document.getElementById(id);
 const BASE="/Users/zhiqiu/AndroidStudioProjects/shuaji/lg_v50/extract/";
 document.querySelectorAll("[data-fw]").forEach(b=>b.onclick=()=>{
   $("fwdir").value=BASE+b.dataset.fw;
-  $("loader").value="/Users/zhiqiu/AndroidStudioProjects/shuaji/edl-tools/edl/Loaders/LG/000a50e100310000_e746e34f737403f4_fhprg_lg_g8x.bin";
+  $("loader").value="/Users/zhiqiu/AndroidStudioProjects/shuaji/FlashingDevice/firmware/loaders/prog_ufs_firehose_sm8150_ddr.elf";
 });
 let jobId=null,es=null,lastUpd=0;
 async function api(p,o){const r=await fetch(p,o);return r.json();}

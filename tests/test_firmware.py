@@ -1,5 +1,7 @@
 import os
 
+import pytest
+
 from flash_device.devices.firmware import validate_fwdir
 
 KT = "/Users/zhiqiu/AndroidStudioProjects/shuaji/lg_v50/extract/KT"
@@ -9,10 +11,16 @@ PIPA = (
     "/Users/zhiqiu/AndroidStudioProjects/shuaji/firmware/pipa_images_OS2.0.20.0.UMZCNXM_14.0/images"
 )
 LG_LOADER = (
-    "/Users/zhiqiu/AndroidStudioProjects/shuaji/edl-tools/edl/Loaders/LG/"
-    "000a50e100310000_e746e34f737403f4_fhprg_lg_g8x.bin"
+    "/Users/zhiqiu/AndroidStudioProjects/shuaji/FlashingDevice/firmware/loaders/"
+    "prog_ufs_firehose_sm8150_ddr.elf"
 )
 PIPA_LOADER = os.path.join(PIPA, "prog_ufs_firehose_sm8250_ddr_5.elf")
+
+# 以下真实固件断言只在本机跑（固件不进仓），CI 上自动跳过。
+needs_local_fw = pytest.mark.skipif(
+    not (os.path.isdir(KT) and os.path.isdir(PIPA)),
+    reason="needs local LG/Xiaomi firmware (not in repo)",
+)
 
 
 def show(label, d, loader):
@@ -24,6 +32,7 @@ def show(label, d, loader):
         print(f"   ⚠ {w}")
 
 
+@needs_local_fw
 def test_lg_dumps_warn_no_patch_but_ok():
     # LG KDZ 解包：无 patch、无包内 loader → warn，但文件齐全可刷
     rep = validate_fwdir(KT, LG_LOADER)
@@ -32,6 +41,7 @@ def test_lg_dumps_warn_no_patch_but_ok():
     assert any("patch" in w for w in rep.warnings)
 
 
+@needs_local_fw
 def test_lgu_and_skt_same_shape():
     for d in (LGU, SKT):
         rep = validate_fwdir(d, LG_LOADER)
@@ -39,6 +49,7 @@ def test_lgu_and_skt_same_shape():
         assert rep.file_count == 74
 
 
+@needs_local_fw
 def test_pipa_in_package_loader_ok():
     # 小米包：自带 loader+patch → 全绿（loader 传空，靠包内自带）
     rep = validate_fwdir(PIPA, "")
