@@ -14,7 +14,6 @@ import logging
 import os
 import re
 import sys
-import threading
 import time
 
 from PyQt6.QtCore import QSettings, Qt, QTimer, QUrl
@@ -78,7 +77,11 @@ QPushButton#primary { background:#1f6feb; border-color:#388bfd; font-weight:700;
 QPushButton#primary:hover { background:#388bfd; }
 QTextEdit { background:#010409; border:1px solid #30363d; border-radius:10px;
             color:#c9d1d9; font-family:Menlo,Consolas,monospace; font-size:12px; }
-QComboBox { background:#0d1117; border:1px solid #30363d; border-radius:8px; padding:7px 9px; }
+QComboBox { background:#0d1117; border:1px solid #30363d; border-radius:8px;
+            padding:7px 28px 7px 10px; min-width:90px; }
+QComboBox::drop-down { border:0; width:24px; }
+QComboBox QAbstractItemView { background:#161b22; border:1px solid #30363d;
+            selection-background-color:#1f6feb; padding:4px; }
 QListWidget { background:#010409; border:1px solid #30363d; border-radius:8px; }
 QProgressBar { background:#0d1117; border:1px solid #30363d; border-radius:11px;
                height:22px; text-align:center; color:#e6edf3; font-weight:700; }
@@ -115,9 +118,6 @@ class MainWindow(QMainWindow):
         self._rp_seen: list[str] = []
         self._rp_cur: str | None = None
         self._last_prog_ts: float | None = None
-        self._server = None
-        self._server_thread = None
-        self._server_port = 8899
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._poll)
         self.timer.start(1000)
@@ -138,7 +138,7 @@ class MainWindow(QMainWindow):
         v.setContentsMargins(14, 12, 14, 12)
         v.setSpacing(10)
 
-        gb = QGroupBox("设备状态")
+        gb = QGroupBox("设备状态 · 9008")
         gl = QVBoxLayout(gb)
         top = QHBoxLayout()
         self.dot = QLabel("●")
@@ -147,9 +147,13 @@ class MainWindow(QMainWindow):
         self.status.setFont(QFont("", 15, QFont.Weight.Bold))
         top.addWidget(self.dot)
         top.addWidget(self.status, 1)
+        mem_label = QLabel("存储类型:")
+        mem_label.setStyleSheet("color:#9fb4d8;")
+        top.addWidget(mem_label)
         self.mem = QComboBox()
         self.mem.addItems(["ufs", "emmc", "nand", "spinor"])
-        top.addWidget(QLabel("存储类型:"))
+        self.mem.setMinimumWidth(120)
+        self.mem.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         top.addWidget(self.mem)
         gl.addLayout(top)
         self.detail = QLabel("—")
@@ -161,21 +165,33 @@ class MainWindow(QMainWindow):
         gl.addWidget(self.hint)
         v.addWidget(gb)
 
-        gb2 = QGroupBox("Firehose 编程器 (Loader：点“扫描本机”自动找，自备，不进仓)")
+        gb2 = QGroupBox("编程器")
         g2 = QHBoxLayout(gb2)
+        g2.setContentsMargins(12, 8, 12, 8)
+        g2.setSpacing(8)
+        loader_label = QLabel("Firehose 编程器:")
+        loader_label.setStyleSheet("color:#9fb4d8; font-weight:700;")
         self.loader = QLineEdit()
-        self.loader.setPlaceholderText("prog_firehose_*.elf / *.mbn")
+        self.loader.setPlaceholderText("prog_firehose_*.elf / *.mbn（点“扫描本机”自动找）")
         b2 = QPushButton("浏览…")
         b2.clicked.connect(self._pick_loader)
         bscan = QPushButton("扫描本机…")
         bscan.clicked.connect(self._scan_loaders)
+        g2.addWidget(loader_label)
         g2.addWidget(self.loader, 1)
         g2.addWidget(b2)
         g2.addWidget(bscan)
         v.addWidget(gb2)
 
-        gb3 = QGroupBox("固件目录（本地，不进仓）")
+        gb3 = QGroupBox("整包刷入用的固件目录")
         g3 = QVBoxLayout(gb3)
+        purpose = QLabel(
+            "⚠“整包刷入(QFIL)”就刷这个目录：里面要有 rawprogram*.xml + 镜像文件；"
+            "手头只有 .kdz 就点「选择 KDZ…」，会自动解包生成。"
+        )
+        purpose.setStyleSheet("color:#9fb4d8; font-size:12px;")
+        purpose.setWordWrap(True)
+        g3.addWidget(purpose)
         r = QHBoxLayout()
         self.fwdir = QLineEdit()
         self.fwdir.setPlaceholderText("包含 rawprogram*.xml / patch*.xml / *.img 的目录")
@@ -256,14 +272,11 @@ class MainWindow(QMainWindow):
         b_open_log.clicked.connect(self._open_log_dir)
         b_env = QPushButton("环境自检")
         b_env.clicked.connect(self._show_env_dialog)
-        self.b_server = QPushButton("启动网页控制台")
-        self.b_server.clicked.connect(self._toggle_server)
         self.heartbeat = QLabel("空闲")
         self.heartbeat.setStyleSheet("color:#8b949e; font-size:12px;")
         logrow.addWidget(self.logpath_label, 1)
         logrow.addWidget(self.heartbeat)
         logrow.addWidget(b_env)
-        logrow.addWidget(self.b_server)
         logrow.addWidget(b_open_log)
         g5.addLayout(logrow)
         self.log = QTextEdit()
@@ -631,33 +644,6 @@ class MainWindow(QMainWindow):
             self._log(">>> [看门狗] " + msg.replace("\n", " "))
             logger.warning("stale session detected, job killed")
             QMessageBox.warning(self, "疑似残留会话，已自动停止", msg)
-
-    def _toggle_server(self) -> None:
-        if self._server is not None:
-            try:
-                self._server.shutdown()
-            except Exception:
-                pass
-            self._server = None
-            self.b_server.setText("启动网页控制台")
-            self._log(">>> 网页控制台已停止")
-            return
-        try:
-            from http.server import ThreadingHTTPServer
-
-            from flash_device.server import Handler
-
-            self._server = ThreadingHTTPServer(("127.0.0.1", self._server_port), Handler)
-            self._server_thread = threading.Thread(target=self._server.serve_forever, daemon=True)
-            self._server_thread.start()
-        except OSError as e:
-            QMessageBox.warning(self, "启动失败", f"端口 {self._server_port} 被占用：{e}")
-            self._server = None
-            return
-        url = f"http://127.0.0.1:{self._server_port}"
-        self.b_server.setText("停止网页控制台")
-        self._log(f">>> 网页控制台已启动：{url}（桌面 GUI 与网页看的是同一个任务）")
-        QDesktopServices.openUrl(QUrl(url))
 
     def _stop(self) -> None:
         if self.worker:

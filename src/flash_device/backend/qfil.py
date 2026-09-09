@@ -1,4 +1,4 @@
-"""QFIL argument builder shared by the HTTP server and the PyQt GUI.
+"""QFIL argument builder used by the PyQt GUI.
 
 ONE place decides how a firmware dir becomes an edl command line:
 all rawprogram*.xml comma-joined (multi-LUN!), placeholder patch token

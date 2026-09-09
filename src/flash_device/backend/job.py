@@ -1,8 +1,7 @@
 """Framework-free flash job engine: ONE source of truth for progress.
 
-Both the HTTP server (server.py) and the PyQt GUI (app.py) drive jobs
-through JobManager, so progress bars, web dashboard and logs can never
-drift apart again.
+The PyQt GUI drives jobs through JobManager: one edl subprocess,
+parsed ProgressState, ring buffer of events, one edl at a time.
 
 A job = one edl subprocess + parsed ProgressState + ring buffer of events.
 Events are plain dicts: {seq, t, overall, op, file, file_pct, line}.
