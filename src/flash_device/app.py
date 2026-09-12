@@ -12,7 +12,6 @@ from __future__ import annotations
 import logging
 import os
 import re
-import shutil
 import sys
 import time
 
@@ -60,15 +59,16 @@ ORG = "FlashingDevice"
 STYLE = """
 QWidget { background:#0d1117; color:#e6edf3; font-size:13px; }
 QMainWindow { background:#0d1117; }
-QGroupBox { border:1px solid #30363d; border-radius:12px; margin-top:18px;
-            padding:16px 12px 12px 12px; font-weight:700; color:#9fb4d8;
+QGroupBox { border:1px solid #30363d; border-radius:12px; margin-top:7px;
+            padding:6px 8px 6px 8px; font-weight:700; color:#9fb4d8;
             background:#161b22; }
-QGroupBox::title { subcontrol-origin:margin; left:12px; padding:0 8px; }
+QGroupBox::title { subcontrol-origin:margin; left:8px; padding:0 6px; }
+QGroupBox#logsection { margin-top:18px; padding:16px 12px 12px 12px; }
 QLineEdit { background:#0d1117; border:1px solid #30363d; border-radius:8px;
-            padding:8px 10px; color:#e6edf3; selection-background-color:#1f6feb; }
+            padding:6px 9px; color:#e6edf3; selection-background-color:#1f6feb; }
 QLineEdit:focus { border-color:#2f81f7; }
 QPushButton { background:#21262d; border:1px solid #3d444d; border-radius:8px;
-              padding:9px 15px; color:#e6edf3; font-weight:600; }
+              padding:7px 12px; color:#e6edf3; font-weight:600; }
 QPushButton:hover { background:#30363d; border-color:#58a6ff; }
 QPushButton:pressed { background:#1c2128; }
 QPushButton:disabled { background:#161b22; color:#6e7681; border-color:#21262d; }
@@ -94,7 +94,9 @@ QScrollBar::handle:vertical { background:#30363d; border-radius:6px; min-height:
 
 
 class MainWindow(QMainWindow):
-    OP_BUTTONS = ("b_print", "b_gpt", "b_rl", "b_r", "b_qfil", "b_w", "b_boot", "b_reset")
+    # 不支持单独刷写：本机未解 BL 也刷不了 boot；9008 下不做刷单独 img 的操作。
+    # 因此 b_w（刷入单分区）/ b_boot（刷 boot）已从操作区移除，仅保留整包刷入等。
+    OP_BUTTONS = ("b_print", "b_gpt", "b_rl", "b_r", "b_qfil", "b_reset")
 
     @staticmethod
     def _mono_css() -> str:
@@ -118,7 +120,7 @@ class MainWindow(QMainWindow):
         except Exception:
             avail = 800
         self.resize(1000, min(820, int(avail) - 30))
-        self.setMinimumHeight(520)
+        self.setMinimumHeight(460)
         self._mono_css_ = self._mono_css()
         self.setStyleSheet(STYLE.replace("__MONO_CSS__", self._mono_css_))
         self.settings = QSettings(ORG, APP_NAME)
@@ -126,13 +128,6 @@ class MainWindow(QMainWindow):
         self.seen_9008 = False
         self.has_edl = False
         self._edl_sn = ""
-        # 真伪 9008 探测状态（只认 VID:PID 会谎报“已连接”，必须探协议）：
-        self._probe_ok: bool | None = None
-        self._probe_detail = ""
-        self._probe_fails = 0
-        self._probe_busy = False
-        self._probe_next = 0.0
-        self._probe_logged_silent = False
         self.raws: list[str] = []
         self.pats: list[str] = []
         self._build_ui()
@@ -211,7 +206,6 @@ class MainWindow(QMainWindow):
         ok, url_or_reason = ensure_started(host, port)
         if ok:
             self._state_url = url_or_reason
-            self._log(f">>> 状态同步接口：{url_or_reason}" + ("（随 GUI 启动）" if startup else ""))
         else:
             self._log(f">>> [注意] {url_or_reason}，本次刷机继续但 CLI 看不到实时同步")
             logger.warning("state server unavailable: %s", url_or_reason)
@@ -231,13 +225,13 @@ class MainWindow(QMainWindow):
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         container = QWidget()
         v = QVBoxLayout(container)
-        v.setContentsMargins(14, 12, 14, 12)
-        v.setSpacing(10)
+        v.setContentsMargins(14, 10, 14, 10)
+        v.setSpacing(4)
 
         gb = QGroupBox("设备")
         gl = QVBoxLayout(gb)
         top = QHBoxLayout()
-        top.setSpacing(12)
+        top.setSpacing(8)
         self.dot = QLabel("●")
         f = self.font()
         f.setPointSize(30)
@@ -256,7 +250,7 @@ class MainWindow(QMainWindow):
         mid.addWidget(self.detail)
         top.addLayout(mid, 1)
         right = QVBoxLayout()
-        right.setSpacing(4)
+        right.setSpacing(2)
         # 窗口内右上角设置入口：macOS 菜单在屏幕顶栏，窗口里没有按钮容易找不到。
         b_prefs = QPushButton("⚙ 设置")
         b_prefs.setFixedWidth(88)
@@ -288,10 +282,11 @@ class MainWindow(QMainWindow):
 
         gb_pkg = QGroupBox("刷机包")
         gpkg = QVBoxLayout(gb_pkg)
+        gpkg.setSpacing(4)
         form = QFormLayout()
-        form.setSpacing(8)
+        form.setSpacing(4)
         row_loader = QHBoxLayout()
-        row_loader.setSpacing(8)
+        row_loader.setSpacing(5)
         self.loader = QLineEdit()
         self.loader.setPlaceholderText("prog_firehose_*.elf / *.mbn（点“扫描本机”自动找）")
         b2 = QPushButton("浏览…")
@@ -303,7 +298,7 @@ class MainWindow(QMainWindow):
         row_loader.addWidget(bscan)
         form.addRow("Firehose 编程器:", row_loader)
         row_fw = QHBoxLayout()
-        row_fw.setSpacing(8)
+        row_fw.setSpacing(5)
         self.fwdir = QLineEdit()
         self.fwdir.setPlaceholderText(
             "rawprogram*.xml + 镜像所在目录；只有 .kdz 就点右边的选择 KDZ"
@@ -316,20 +311,6 @@ class MainWindow(QMainWindow):
         row_fw.addWidget(b3)
         row_fw.addWidget(bkdz)
         form.addRow("固件目录:", row_fw)
-        row_sub = QHBoxLayout()
-        row_sub.setSpacing(8)
-        self.bootsub = QLineEdit()
-        self.bootsub.setPlaceholderText(
-            "可选：整包刷入时用这个 boot 替换包内 boot_a/boot_b（如 Magisk 修补镜像）"
-        )
-        bsub = QPushButton("浏览…")
-        bsub.clicked.connect(self._pick_bootsub)
-        bsub_clr = QPushButton("清除")
-        bsub_clr.clicked.connect(self.bootsub.clear)
-        row_sub.addWidget(self.bootsub, 1)
-        row_sub.addWidget(bsub)
-        row_sub.addWidget(bsub_clr)
-        form.addRow("替代 boot:", row_sub)
         gpkg.addLayout(form)
         self.fwinfos = QLabel("—")
         self.fwinfos.setStyleSheet("color:#8b949e; font-size:12px;")
@@ -342,6 +323,7 @@ class MainWindow(QMainWindow):
 
         gb4 = QGroupBox("操作（9008 连接后解锁）")
         g4 = QVBoxLayout(gb4)
+        g4.setSpacing(4)
         row1 = QHBoxLayout()
         self.b_print = QPushButton("打印分区表")
         self.b_gpt = QPushButton("备份分区表")
@@ -354,14 +336,10 @@ class MainWindow(QMainWindow):
         row2 = QHBoxLayout()
         self.b_qfil = QPushButton("⚠  整包刷入 (QFIL)")
         self.b_qfil.setObjectName("danger")
-        self.b_w = QPushButton("刷入单分区…")
-        self.b_boot = QPushButton("刷 boot…")
         self.b_reset = QPushButton("重启设备")
         self.b_stop = QPushButton("停止")
         self.b_stop.setEnabled(False)
         row2.addWidget(self.b_qfil)
-        row2.addWidget(self.b_w)
-        row2.addWidget(self.b_boot)
         row2.addWidget(self.b_reset)
         row2.addWidget(self.b_stop)
         g4.addLayout(row1)
@@ -371,13 +349,12 @@ class MainWindow(QMainWindow):
         self.b_rl.clicked.connect(self._do_rl)
         self.b_r.clicked.connect(self._do_r)
         self.b_qfil.clicked.connect(self._do_qfil)
-        self.b_w.clicked.connect(self._do_w)
-        self.b_boot.clicked.connect(self._do_boot)
         self.b_reset.clicked.connect(self._do_reset)
         self.b_stop.clicked.connect(self._stop)
         v.addWidget(gb4)
 
         gb5 = QGroupBox("日志与进度（每次运行都写入文件，方便事后复盘）")
+        gb5.setObjectName("logsection")  # 保持原高度，不随其它 section 一起压缩
         g5 = QVBoxLayout(gb5)
         # rawprogram 进度小方块：随刷机推进点亮（灰=未动 / 蓝=进行中 / 绿=完成 / 红=出错）
         chrow = QHBoxLayout()
@@ -435,7 +412,6 @@ class MainWindow(QMainWindow):
     def _restore(self) -> None:
         self.loader.setText(self.settings.value("loader", ""))
         self.fwdir.setText(self.settings.value("fwdir", ""))
-        self.bootsub.setText(self.settings.value("boot_sub", ""))
         mem = self.settings.value("mem", "ufs")
         # 共享状态（CLI/HTTP 写过）非空即覆盖本地：CLI 操作后开 GUI 即见最新。
         try:
@@ -468,7 +444,6 @@ class MainWindow(QMainWindow):
         self.settings.setValue("loader", self.loader.text())
         self.settings.setValue("fwdir", self.fwdir.text())
         self.settings.setValue("mem", self.mem.currentText())
-        self.settings.setValue("boot_sub", self.bootsub.text())
         try:
             from flash_device import state as shared
 
@@ -562,22 +537,6 @@ class MainWindow(QMainWindow):
         if p:
             self.fwdir.setText(p)
             self._scan_fw()
-            self._save()
-
-    def _pick_bootsub(self) -> None:
-        """选替代 boot 镜像：整包刷入时替换包内 boot_a/boot_b（如 Magisk 修补后的 boot）。"""
-        cur = self.bootsub.text().strip()
-        start = (
-            os.path.dirname(cur) if cur else (self.fwdir.text().strip() or os.path.expanduser("~"))
-        )
-        p, _ = QFileDialog.getOpenFileName(
-            self,
-            "选择替代 boot 镜像",
-            start,
-            "镜像 (*.img *.mbn *.bin);;所有文件 (*)",
-        )
-        if p:
-            self.bootsub.setText(p)
             self._save()
 
     def _pick_kdz(self) -> None:
@@ -705,56 +664,9 @@ class MainWindow(QMainWindow):
             getattr(self, name).setEnabled(ok)
         self.b_stop.setEnabled(busy)
 
-    def _edl_health(self) -> tuple[str, str]:
-        """healthy | silent | busy | unknown（连续 2 次无响应才判死，防单次抖动误杀）。"""
-        if self._probe_ok is True:
-            return "healthy", self._probe_detail
-        if self._probe_detail == "busy":
-            return "busy", self._probe_detail
-        if self._probe_fails >= 2:
-            return "silent", self._probe_detail or "silent"
-        return "unknown", self._probe_detail
-
-    def _maybe_probe(self) -> None:
-        """约 12s 探一次协议；刷机进行中绝不碰设备；结果下轮 tick 渲染（不跨线程碰 UI）。"""
-        import threading
-        import time
-
-        if self._probe_busy:
-            return
-        if self.worker and self.worker.isRunning():
-            return
-        now = time.monotonic()
-        if now < self._probe_next:
-            return
-        self._probe_busy = True
-        self._probe_next = now + 12
-
-        def go() -> None:
-            try:
-                from flash_device.utils.usb import probe_9008
-
-                ok, detail = probe_9008()
-            except Exception as e:
-                ok, detail = False, f"error:{e}"
-            self._probe_ok = ok
-            self._probe_detail = detail
-            if ok:
-                self._probe_fails = 0
-            else:
-                self._probe_fails += 1
-            self._probe_busy = False
-
-        threading.Thread(target=go, daemon=True).start()
-
     def _manual_refresh(self) -> None:
-        """刷新按钮：清掉上轮探测缓存，立即重查一遍（拔插后点它，不用干等）。"""
+        """刷新按钮：立即重查一遍 USB（拔插后点它，不用干等）。"""
         self.seen_9008 = False
-        self._probe_ok = None
-        self._probe_detail = ""
-        self._probe_fails = 0
-        self._probe_next = 0.0
-        self._probe_logged_silent = False
         self._log(">>> 手动刷新：重新检测 USB…")
         self._poll()
 
@@ -773,38 +685,21 @@ class MainWindow(QMainWindow):
             sn = self._edl_sn
             extra = f"    SN:{sn}" if sn else ""
             self.detail.setText(f"{vid:04x}:{pid:04x}    Bus {b}  Port {p}    {nm}{extra}")
-            health, hdetail = self._edl_health()
-            if health == "healthy":
-                self._set("#3ddc84", "✅  9008 已连接 —— 可以操作")
-                self.hint.setText("已强制要求： destructive 操作前先备份，整包/单写需二次确认。")
-                self._probe_logged_silent = False
-            elif health == "silent":
-                self._set("#ff5d5d", "⛔  9008 无响应（假死）——现在刷只会空转")
-                self.hint.setText(
-                    "手机 USB 口活着但协议已死（残留会话/电量过低/需断电重启）：\n"
-                    "1) 按住电源键 20 秒强制断电；2) 充电；3) 换口直连；4) 音量+-插线重进 9008。"
-                    f"（探针：{hdetail}）"
-                )
-                if not self._probe_logged_silent:
-                    self._probe_logged_silent = True
-                    self._log(f">>> [探针] 9008 无响应（{hdetail}），已亮红灯，开刷会被拦截。")
-            elif health == "busy":
-                self._set("#d8a534", "⚠ 9008 正被别的程序占用")
-                self.hint.setText("可能有另一个刷机窗口/脚本正在用设备，同时刷会变砖，先停掉那边。")
-            else:  # unknown：刚出现，探针还在路上，不谎报也不误拦
-                self._set("#8b8b9a", "○ 9008 已出现，正在确认是否真的活着…")
-                self.hint.setText("确认协议有回应后才会绿灯，稍等几秒。")
-            self._maybe_probe()
+            # 不再发 USB 探测包（probe_9008 会消耗 sahara hello 并复位设备，
+            # 反复探测会把 xHCI 端口搞卡）。直接信任枚举结果：枚举到就是已连接。
+            self._set("#3ddc84", "✅  9008 已连接 —— 可以操作")
+            self.hint.setText("已强制要求： destructive 操作前先备份，整包刷入需二次确认。")
             if not self.seen_9008:
                 self.seen_9008 = True
                 pf.notify("9008 已连接", f"检测到 {vid:04x}:{pid:04x}")
-                self._log(f">>> 检测到 9008 设备 {vid:04x}:{pid:04x}" + (f" SN:{sn}" if sn else ""))
+                self._log(
+                    f">>> 检测到 9008 设备 {vid:04x}:{pid:04x}"
+                    + (f" SN:{sn}" if sn else "")
+                )
             return
+        if self.seen_9008:
+            self._edl_lost_at = time.monotonic()
         self.seen_9008 = False
-        self._probe_ok = None
-        self._probe_detail = ""
-        self._probe_fails = 0
-        self._probe_logged_silent = False
         if not ordered:
             self._set("#55555f", "○  没插任何 USB 设备")
             self.detail.setText("—")
@@ -838,25 +733,6 @@ class MainWindow(QMainWindow):
         if not g.ok:
             QMessageBox.warning(self, "无 9008 设备", g.message)
             return False
-        health, hdetail = self._edl_health()
-        if health == "silent":
-            QMessageBox.warning(
-                self,
-                "9008 无响应，禁止开刷",
-                "探针确认手机 USB 口活着但协议已死（残留会话/电量过低/需断电重启），\n"
-                "现在点刷只会空转，之前已经浪费过两次 11 分钟。\n\n"
-                "请：1) 按住电源键 20 秒强制断电；2) 充电；3) 换口直连；\n"
-                "4) 音量+-插线重进 9008，等本界面变绿灯再刷。\n"
-                f"（探针：{hdetail}）",
-            )
-            return False
-        if health == "busy":
-            QMessageBox.warning(
-                self,
-                "设备正被占用",
-                "有别的程序占着 9008（可能正在别处刷机），同时开刷会变砖，先停掉那边。",
-            )
-            return False
         gl = guards.validate_loader(self.loader.text())
         if not gl.ok:
             QMessageBox.warning(self, "编程器问题", gl.message)
@@ -886,11 +762,6 @@ class MainWindow(QMainWindow):
     ) -> None:
         logger.info("run: %s (cwd=%s)", " ".join(args), cwd)
         self._ensure_state_server()
-        # 等在途的 probe_9008 收尾（它 claim 接口最长约 3 秒），
-        # 否则 edl 一启动就撞上 Access denied。
-        t0 = time.monotonic()
-        while getattr(self, "_probe_busy", False) and time.monotonic() - t0 < 4.0:
-            time.sleep(0.1)
         self._log("$ " + " ".join(args))
         self.bar_total.setValue(0)
         self.bar_file.setValue(0)
@@ -992,6 +863,11 @@ class MainWindow(QMainWindow):
         except Exception:
             return
         if "Uploading loader" not in recent and w.job.state != "done":
+            # firehose 残留会话下 edl 会跳过上传直接干活（无 Uploading loader 行），
+            # 只要有进度在动就不算空转——别误伤正常任务。
+            last = getattr(self, "_last_prog_ts", None)
+            if last is not None and time.monotonic() - last < 30:
+                return
             self._no_upload_warned = True
             msg = (
                 "120 秒还没上传 loader：可能是残留会话或手机 EDL 引擎卡死（枚举成 9008 但不回话）。"
@@ -1048,6 +924,26 @@ class MainWindow(QMainWindow):
             self._log(">>> [提示] " + msg.replace("\n", " "))
             pf.notify("9008 错误状态", "Sahara error：请重启手机重进 9008")
             QMessageBox.warning(self, "9008 处于错误状态", msg)
+        # 残留 firehose 会话（跳过了 loader 上传）+ 写操作：即使退出码 0 也不可信，
+        # 有假成功实证（bkerler/edl#437：显示 100% 写入实际零写入）。
+        elif (
+            code == 0
+            and "Mode detected: firehose" in job_log
+            and "Uploading loader" not in job_log
+        ):
+            try:
+                opname = self.worker.args[1] if len(self.worker.args) > 1 else ""
+            except Exception:
+                opname = ""
+            if opname in ("w", "qfil"):
+                msg = (
+                    "这次写入走的是手机里的残留 firehose 会话（没有重新上传 loader）。\n"
+                    "这种会话有“假成功”先例：进度 100% 但实际零写入。\n\n"
+                    "强烈建议：拔线 → 彻底关机 → 重进 9008 → 重新刷一次，并用打印分区表校验。"
+                )
+                self._log(">>> [警示] " + msg.replace("\n", " "))
+                pf.notify("写入不可信", "残留 firehose 会话写入，建议断电重刷校验")
+                QMessageBox.warning(self, "写入结果不可信", msg)
         pf.notify("操作完成", result)
         try:
             from flash_device import state as shared
@@ -1201,17 +1097,6 @@ class MainWindow(QMainWindow):
             self._edl_cmd() + ["r", p, f, f"--loader={self.loader.text().strip()}"] + self._mem()
         )
 
-    def _confirm_backup_first(self, action: str) -> bool:
-        r = QMessageBox.warning(
-            self,
-            "先备份",
-            f"{action}前必须备份。\n\n已经用本工具备份过 GPT + 关键分区了吗？\n"
-            "点 Yes 继续，点 No 先去点「备份全部分区」。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        return r == QMessageBox.StandardButton.Yes
-
     def _do_qfil(self) -> None:
         if not self._ready():
             return
@@ -1247,52 +1132,14 @@ class MainWindow(QMainWindow):
             )
             if r0 != QMessageBox.StandardButton.Yes:
                 return
-        # 替代 boot：把选中的镜像复制覆盖包内 boot_a/boot_b（原始 boot 随时可从 KDZ 重解恢复）。
-        replaced: list[str] = []
-        sub = self.bootsub.text().strip()
-        if sub and not os.path.isfile(sub):
-            QMessageBox.warning(
-                self,
-                "替代 boot 不可用",
-                f"替代 boot 文件不存在：\n{sub}\n\n请重新选择或点「清除」。",
-            )
-            return
-        if sub:
-            for root, _dirs, files in os.walk(d):
-                for name in files:
-                    if re.sub(r"^\d+\.", "", name.lower()) in (
-                        "boot_a.img",
-                        "boot_b.img",
-                        "boot.img",
-                    ):
-                        try:
-                            shutil.copyfile(sub, os.path.join(root, name))
-                            replaced.append(name)
-                        except OSError as e:
-                            QMessageBox.warning(self, "替代 boot 失败", f"覆盖 {name} 出错：{e}")
-                            return
-            if not replaced:
-                QMessageBox.warning(
-                    self,
-                    "替代 boot 未生效",
-                    "包里没找到 boot_a/boot_b 镜像，替代未应用。\n\n"
-                    "确认这是完整刷机包，或清空「替代 boot」后再试。",
-                )
-                return
         # 完整重刷：把目录下全部 rawprogram 一次性交给 edl（逗号分隔，覆盖 LUN0~6 所有分区）。
         # 按用户要求不做备份，故省略备份确认，仅保留最终危险操作确认。
-        sub_note = ""
-        if replaced:
-            sub_note = (
-                f"\n\n⚠ 替代 boot 已生效：包内 {('、'.join(sorted(replaced)))} 已被替换为\n{sub}"
-            )
         r = QMessageBox.critical(
             self,
             "危险操作：整包刷入",
             guards.qfil_safety_summary(self.loader.text().strip(), d, raws[0])
             + "\n\n将刷入以下分区表（全部 rawprogram，覆盖全部分区）：\n"
-            + "\n".join(os.path.basename(x) for x in raws)
-            + sub_note,
+            + "\n".join(os.path.basename(x) for x in raws),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -1312,113 +1159,6 @@ class MainWindow(QMainWindow):
         self._log(">>> " + summary)
 
         self._run(args, total_files=total, status_text=summary)
-
-    def _write_image(self, p: str, f: str) -> None:
-        """单分区写入的公共尾部：边界保护 → 备份确认 → AVB 提醒+危险确认 → 执行。"""
-        g = guards.validate_single_write(p, f)
-        if not g.ok:
-            QMessageBox.warning(self, "被边界保护拦截", g.message)
-            return
-        if not self._confirm_backup_first(f"写入 {p}"):
-            return
-        confirm_text = f"将把\n{f}\n写入分区 {p}\n\n确定？"
-        if guards.needs_avb_warning(p):
-            # boot/vbmeta 类分区：能连上 adb 就实测验证状态，连不上按最严提醒。
-            try:
-                from flash_device.utils.adb import read_avb_state
-
-                avb = read_avb_state()
-            except Exception:
-                avb = {}
-            confirm_text += "\n\n" + guards.avb_warning_text(p, avb)
-            self._log(f">>> AVB 实测：{avb or '查不到（按最严提醒）'}")
-        r = QMessageBox.warning(
-            self,
-            "确认" + ("（含 AVB 提醒）" if guards.needs_avb_warning(p) else ""),
-            confirm_text,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if r == QMessageBox.StandardButton.Yes:
-            # 按分区名记住本次镜像，下次写同一分区直接预选。
-            self.settings.setValue(f"last_img/{p.lower()}", f)
-            self._run(
-                self._edl_cmd()
-                + ["w", p, f, f"--loader={self.loader.text().strip()}"]
-                + self._mem()
-            )
-
-    def _last_img(self, part: str) -> str:
-        prev = (self.settings.value(f"last_img/{(part or '').strip().lower()}", "") or "").strip()
-        return prev if prev and os.path.isfile(prev) else ""
-
-    def _pick_image_for(self, part: str, allow_boot_fallback: bool = False) -> str:
-        """给分区 part 选镜像：记忆优先（问一次"直接用？"，Yes 连文件对话框都不弹），
-        其次固件目录里按名匹配，最后手动选。返回路径，取消返回 ""。"""
-        last = self._last_img(part)
-        if last:
-            r = QMessageBox.question(
-                self,
-                "写入 " + part,
-                f"上次写入 {part} 用的镜像：\n{last}\n\n直接用这个吗？",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes,
-            )
-            if r == QMessageBox.StandardButton.Yes:
-                return last
-        pre = self._fw_image(part)
-        if not pre and allow_boot_fallback:
-            pre = self._fw_image("boot")
-        start = pre or self.fwdir.text().strip() or os.path.expanduser("~")
-        f, _ = QFileDialog.getOpenFileName(
-            self,
-            f"选择 {part} 镜像",
-            start,
-            "镜像 (*.img *.mbn *.bin);;所有文件 (*)",
-        )
-        return f or ""
-
-    def _do_w(self) -> None:
-        if not self._ready():
-            return
-        p, ok = QInputDialog.getText(self, "刷入分区", "目标分区名（如 boot_a）：")
-        if not ok or not p:
-            return
-        f = self._pick_image_for(p.strip())
-        if not f:
-            return
-        self._write_image(p.strip(), f)
-
-    def _fw_image(self, part: str) -> str:
-        """在固件目录按分区名找镜像；兼容 boot.img 与 KDZ 解包产物 <lun>.<part>.img。
-
-        用 os.walk 而非 glob：目录名可能含 [ ] 等字符，glob 会当字符类吞掉。
-        """
-        d = self.fwdir.text().strip()
-        if not d:
-            return ""
-        for root, _dirs, files in os.walk(d):
-            for name in files:
-                if not name.lower().endswith(".img"):
-                    continue
-                if re.sub(r"^\d+\.", "", name.lower()) == f"{part.lower()}.img":
-                    return os.path.join(root, name)
-        return ""
-
-    def _do_boot(self) -> None:
-        """专用刷 boot：分区名默认 boot_a；记忆的镜像优先（问一次直接用）。"""
-        if not self._ready():
-            return
-        p, ok = QInputDialog.getText(
-            self, "刷 boot", "分区名（A/B 槽任一，当前槽通常为 boot_a）：", text="boot_a"
-        )
-        if not ok or not p:
-            return
-        p = p.strip()
-        f = self._pick_image_for(p, allow_boot_fallback=True)
-        if not f:
-            return
-        self._write_image(p, f)
 
     def _do_reset(self) -> None:
         if not self._ready():
@@ -1483,7 +1223,6 @@ def main(argv: list[str] | None = None) -> int:
         dlg.accept()
         print(f"self-test-ok buttons_locked={not w.b_qfil.isEnabled()} log={log_path}")
         return 0
-    w._log(f">>> 日志文件: {get_log_path()}")
     missing = [c for c in checks if not c.ok]
     if missing:
         w._log(

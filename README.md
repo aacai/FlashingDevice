@@ -1,5 +1,10 @@
 # FlashingDevice
 
+
+sudo killall -HUP usbd 2>/dev/null
+sudo kextunload -b com.apple.driver.usb.AppleUSBXHCI 2>/dev/null
+sudo kextload   -b com.apple.driver.usb.AppleUSBXHCI 2>/dev/null
+
 Open-source Qualcomm 9008 / EDL flashing tool with **safety guards, mandatory backups and real progress**.
 
 > [!WARNING]
